@@ -4,9 +4,13 @@ import { AppError } from "../errors";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { authenticate } from "../middleware/authenticate";
 import { requireRole } from "../middleware/requireRole";
+import { listCreditRequests, reviewCreditRequest } from "../services/creditRequestService";
+import { PROFILE_LEVELS } from "../services/gameParameters";
+import { findPlayerForControls, listPlayerGameProfiles, setPlayerGameProfile } from "../services/gameProfileService";
 import {
   adjustCredits,
   createPlayer,
+  findUserByEmail,
   getUser,
   listActivity,
   listPlayers,
@@ -51,6 +55,28 @@ adminRouter.get(
     const users = await listPlayers();
     const credits = users.reduce((sum, user) => sum + user.balance, 0);
     res.json({ users, totalPlayers: users.length, totalCredits: credits });
+  }),
+);
+
+adminRouter.get(
+  "/users/search",
+  asyncHandler(async (req, res) => {
+    const parsed = z.string().trim().email("Enter a valid email.").safeParse(req.query.email);
+    if (!parsed.success) {
+      throw new AppError(400, parsed.error.issues[0]?.message ?? "Enter a valid email.");
+    }
+    res.json({ user: await findUserByEmail(parsed.data) });
+  }),
+);
+
+adminRouter.get(
+  "/users/player",
+  asyncHandler(async (req, res) => {
+    const parsed = z.string().trim().email("Enter a valid email.").safeParse(req.query.email);
+    if (!parsed.success) {
+      throw new AppError(400, parsed.error.issues[0]?.message ?? "Enter a valid email.");
+    }
+    res.json({ player: await findPlayerForControls(parsed.data) });
   }),
 );
 
@@ -100,6 +126,33 @@ adminRouter.post(
   }),
 );
 
+const profileSchema = z.object({
+  profile: z.enum(PROFILE_LEVELS),
+  parameters: z.record(z.number()).optional(),
+});
+
+adminRouter.get(
+  "/users/:id/game-profiles",
+  asyncHandler(async (req, res) => {
+    res.json({ profiles: await listPlayerGameProfiles(param(req.params.id)) });
+  }),
+);
+
+adminRouter.put(
+  "/users/:id/game-profiles/:gameId",
+  asyncHandler(async (req, res) => {
+    const body = parse(profileSchema, req.body);
+    const profile = await setPlayerGameProfile(
+      req.authUser!.id,
+      param(req.params.id),
+      param(req.params.gameId),
+      body.profile,
+      body.parameters,
+    );
+    res.json({ profile });
+  }),
+);
+
 adminRouter.get(
   "/transactions",
   asyncHandler(async (_req, res) => {
@@ -111,6 +164,27 @@ adminRouter.get(
   "/activity",
   asyncHandler(async (_req, res) => {
     res.json({ activity: await listActivity() });
+  }),
+);
+
+adminRouter.get(
+  "/credit-requests",
+  asyncHandler(async (_req, res) => {
+    res.json({ requests: await listCreditRequests() });
+  }),
+);
+
+const reviewSchema = z.object({
+  action: z.enum(["approve", "reject"]),
+  note: z.string().trim().max(200).optional(),
+});
+
+adminRouter.post(
+  "/credit-requests/:id/review",
+  asyncHandler(async (req, res) => {
+    const body = parse(reviewSchema, req.body);
+    const result = await reviewCreditRequest(req.authUser!.id, param(req.params.id), body.action, body.note ?? "");
+    res.json(result);
   }),
 );
 

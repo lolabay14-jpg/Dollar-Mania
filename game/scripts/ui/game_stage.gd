@@ -6,7 +6,21 @@ var _game_id := ""
 var _slug := ""
 var _name := "Game"
 var _difficulty := ""
+var _category := ""
 var _description := ""
+var _balance := -1.0
+var _shown_balance := -1.0
+var _quick := false
+var _replay := false
+var _scratch_mode := false
+var _scratch_done := false
+var _held: Dictionary = {}
+var _low: Control
+var _ask: Control
+var _ask_amount: LineEdit
+var _ask_note: Label
+var _delta: Label
+var _scratch_buttons: Array[Button] = []
 var _min := 1
 var _max := 1
 var _bet := 1
@@ -16,6 +30,8 @@ var _busy := false
 var _title: Label
 var _credits: Label
 var _meta: Label
+var _limits: Label
+var _back: Button
 var _board: VBoxContainer
 var _bet_label: Label
 var _play: Button
@@ -24,6 +40,7 @@ var _result: Label
 var _reels: Array = []
 var _wheel: WheelFace
 var _coin_label: Label
+var _coin_disc: Control
 var _choice_buttons: Array[Button] = []
 var _choice_values: Array = []
 var _cell_labels: Array[Label] = []
@@ -33,6 +50,7 @@ var _burst_fill: ColorRect
 func _ready() -> void:
 	UiTheme.apply(self)
 	$Background.color = UiTheme.COL_BG
+	UiTheme.mood(self, "game", UiTheme.game_accent(_slug))
 	_build_shell()
 	resized.connect(_fit)
 	_fit()
@@ -40,44 +58,49 @@ func _ready() -> void:
 
 
 func _fit() -> void:
-	ScreenLayout.fit_column(_column, 760.0)
+	var view := size
+	var column_width := minf(maxf(view.x - 8.0, 280.0), 760.0)
+	ScreenLayout.fit_column(_column, column_width)
+	if _back:
+		_back.text = "Back to Games" if view.x >= 640.0 else "Games"
+	if _title:
+		_title.add_theme_font_size_override("font_size", 24 if view.x < 520.0 else 30)
+	_layout_board()
 
 
 func _load_game() -> void:
-	_status.text = "Loading game..."
-	_play.disabled = true
-	var listing: Dictionary = await ApiClient.get_slot_games()
-	if not is_inside_tree():
-		return
-	if listing.ok:
-		for game in listing.data.get("games", []):
-			if game is Dictionary and _is_selected(game):
-				_apply_game(game)
-				break
-	if _game_id == "":
+	var cached := _cached_game()
+	if not cached.is_empty():
+		_apply_game(cached)
+	else:
 		_apply_game(AppState.selected_game)
 	if _game_id == "":
 		_game_id = _slug
-	var wallet: Dictionary = await ApiClient.get_wallet()
-	if not is_inside_tree():
-		return
-	if wallet.ok:
-		_credits.text = "Credits  %s" % _amount(wallet.data.get("balance", 0))
+	if ApiClient.balance_cache >= 0.0:
+		_set_balance(ApiClient.balance_cache, false)
 	_show_heading()
 	_build_board()
+	_layout_board()
 	_refresh_bet()
-	if _game_id == "":
-		_status.text = "This game is not available."
-		_play.disabled = true
-	elif not listing.ok and _slug == "":
-		_status.text = str(listing.error)
-		_play.disabled = true
-	else:
-		_status.text = "Ready"
-		_play.disabled = false
+	_play.disabled = _game_id == ""
+	_status.text = "Ready" if _game_id != "" else "This game is not available."
+	_refresh_live()
 	await get_tree().process_frame
 	if is_inside_tree():
 		UiMotion.settle(_column)
+
+
+func _cached_game() -> Dictionary:
+	for game in ApiClient.games_cache:
+		if game is Dictionary and _is_selected(game):
+			return game
+	return {}
+
+
+func _refresh_live() -> void:
+	var wallet: Dictionary = await ApiClient.get_wallet()
+	if is_inside_tree() and wallet.ok:
+		_set_balance(float(wallet.data.get("balance", _balance)), false)
 
 
 func _is_selected(game: Dictionary) -> bool:
@@ -95,10 +118,12 @@ func _apply_game(game: Dictionary) -> void:
 	_slug = str(game.get("slug", AppState.selected_slot_id))
 	_name = str(game.get("name", "Game"))
 	_difficulty = str(game.get("difficulty", ""))
+	_category = str(game.get("category", _category_for(_slug)))
 	_description = str(game.get("description", ""))
 	_min = maxi(int(game.get("minimumBet", game.get("min_bet", 1))), 1)
 	_max = maxi(int(game.get("maximumBet", game.get("max_bet", _min))), _min)
 	_bet = _min
+	UiTheme.mood(self, "game", UiTheme.game_accent(_slug))
 
 
 func _build_shell() -> void:
@@ -111,11 +136,11 @@ func _build_shell() -> void:
 	header.add_theme_constant_override("separation", 12)
 	box.add_child(header)
 
-	var back := Button.new()
-	back.text = "Games"
-	back.custom_minimum_size = Vector2(96, 48)
-	back.pressed.connect(AppState.go_slots)
-	header.add_child(back)
+	_back = Button.new()
+	_back.text = "Games"
+	_back.custom_minimum_size = Vector2(96, 48)
+	_back.pressed.connect(AppState.go_slots)
+	header.add_child(_back)
 
 	_title = Label.new()
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -124,11 +149,23 @@ func _build_shell() -> void:
 	header.add_child(_title)
 
 	_credits = Label.new()
-	_credits.text = "Credits"
+	_credits.text = "💰 Credits"
+	_delta = Label.new()
+	_delta.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_credits.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_credits.add_theme_font_size_override("font_size", 20)
 	_credits.add_theme_color_override("font_color", UiTheme.COL_GOLD)
 	header.add_child(_credits)
+	var credit_box := VBoxContainer.new()
+	header.remove_child(_credits)
+	credit_box.add_child(_credits)
+	_delta.add_theme_font_size_override("font_size", 14)
+	_delta.add_theme_color_override("font_color", UiTheme.COL_GREEN)
+	credit_box.add_child(_delta)
+	var credit_row := HBoxContainer.new()
+	credit_row.alignment = BoxContainer.ALIGNMENT_END
+	box.add_child(credit_row)
+	credit_row.add_child(credit_box)
 
 	_meta = Label.new()
 	_meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -136,6 +173,7 @@ func _build_shell() -> void:
 	box.add_child(_meta)
 
 	var panel := PanelContainer.new()
+	UiTheme.paint_glass(panel)
 	box.add_child(panel)
 	var inset := MarginContainer.new()
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
@@ -166,6 +204,27 @@ func _build_shell() -> void:
 	plus.custom_minimum_size = Vector2(52, 48)
 	plus.pressed.connect(_change_bet.bind(1))
 	bets.add_child(plus)
+	var quick := Button.new()
+	quick.text = "Quick"
+	quick.custom_minimum_size = Vector2(72, 48)
+	quick.toggle_mode = true
+	quick.toggled.connect(func(on: bool) -> void: _quick = on)
+	bets.add_child(quick)
+	var chips := HBoxContainer.new()
+	chips.alignment = BoxContainer.ALIGNMENT_CENTER
+	chips.add_theme_constant_override("separation", 8)
+	box.add_child(chips)
+	for label in ["Min", "Mid", "Max"]:
+		var chip := Button.new()
+		chip.text = label
+		chip.custom_minimum_size = Vector2(72, 40)
+		chip.pressed.connect(_quick_bet.bind(label))
+		chips.add_child(chip)
+	_limits = Label.new()
+	_limits.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_limits.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiTheme.style_muted(_limits)
+	box.add_child(_limits)
 
 	_play = Button.new()
 	_play.theme_type_variation = "PrimaryButton"
@@ -181,18 +240,24 @@ func _build_shell() -> void:
 
 	_result = Label.new()
 	_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_result.add_theme_font_size_override("font_size", 28)
+	_result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_result.add_theme_font_size_override("font_size", 32)
 	_result.add_theme_color_override("font_color", UiTheme.COL_GOLD)
 	box.add_child(_result)
+	_build_overlays()
 	UiMotion.bind_tree(box)
 
 
 func _show_heading() -> void:
 	_title.text = _name
-	var detail := _description
+	var bits: PackedStringArray = []
+	if _category != "":
+		bits.append(_category)
 	if _difficulty != "":
-		detail = "%s   ·   %s" % [_difficulty, _description] if _description != "" else _difficulty
-	_meta.text = detail
+		bits.append(_difficulty)
+	if _description != "":
+		bits.append(_description)
+	_meta.text = "  ·  ".join(bits)
 
 
 func _build_board() -> void:
@@ -204,7 +269,11 @@ func _build_board() -> void:
 	_cell_labels.clear()
 	_wheel = null
 	_coin_label = null
+	_coin_disc = null
 	_burst_fill = null
+	_scratch_buttons.clear()
+	_scratch_mode = false
+	_scratch_done = false
 	_choice = null
 	match _slug:
 		"lucky-dollar":
@@ -214,7 +283,7 @@ func _build_board() -> void:
 		"dollar-rush":
 			_build_choices(["Lane 1", "Lane 2", "Lane 3"], [0, 1, 2])
 		"scratch-mania":
-			_build_cards(6, "—")
+			_build_cards(6, "?", true)
 		"lucky-spin":
 			_build_wheel(240)
 		"jackpot-wheel":
@@ -242,7 +311,7 @@ func _build_reels(count: int) -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 8)
 	_board.add_child(row)
-	var face := Vector2(84, 78) if count <= 3 else Vector2(56, 64)
+	var face := _reel_face(count)
 	for _index in count:
 		var reel := ReelView.new()
 		reel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -261,7 +330,8 @@ func _build_choices(labels: Array, values: Array) -> void:
 	for index in labels.size():
 		var button := Button.new()
 		button.text = str(labels[index])
-		button.custom_minimum_size = Vector2(0, 72)
+		button.add_theme_font_size_override("font_size", 22)
+		button.custom_minimum_size = Vector2(0, 84)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(_select_choice.bind(values[index]))
 		grid.add_child(button)
@@ -270,35 +340,42 @@ func _build_choices(labels: Array, values: Array) -> void:
 	UiMotion.bind_tree(grid)
 
 
-func _build_cards(count: int, hidden: String) -> void:
+func _build_cards(count: int, hidden: String, scratch := false) -> void:
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
 	_board.add_child(grid)
-	for _index in count:
-		var panel := PanelContainer.new()
-		panel.custom_minimum_size = Vector2(88, 76)
-		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var label := Label.new()
-		label.text = hidden
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		label.add_theme_font_size_override("font_size", 20)
-		panel.add_child(label)
-		grid.add_child(panel)
-		_cell_labels.append(label)
+	for index in count:
+		if scratch:
+			var button := Button.new()
+			button.text = hidden
+			button.add_theme_font_size_override("font_size", 32)
+			button.custom_minimum_size = Vector2(0, 96)
+			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			button.disabled = true
+			button.pressed.connect(_scratch_at.bind(index))
+			grid.add_child(button)
+			_scratch_buttons.append(button)
+		else:
+			var panel := PanelContainer.new()
+			panel.custom_minimum_size = Vector2(0, 96)
+			panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			UiTheme.paint_card(panel, UiTheme.game_accent(_slug))
+			var label := Label.new()
+			label.text = hidden
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			label.add_theme_font_size_override("font_size", 28)
+			label.add_theme_color_override("font_color", UiTheme.COL_TEXT)
+			panel.add_child(label)
+			grid.add_child(panel)
+			_cell_labels.append(label)
 
 
 func _build_wheel(diameter: float) -> void:
-	var pointer := Label.new()
-	pointer.text = "▼"
-	pointer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pointer.add_theme_font_size_override("font_size", 22)
-	pointer.add_theme_color_override("font_color", UiTheme.COL_GOLD)
-	_board.add_child(pointer)
 	_wheel = WheelFace.new()
 	_wheel.custom_minimum_size = Vector2(diameter, diameter)
 	_wheel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -306,12 +383,20 @@ func _build_wheel(diameter: float) -> void:
 
 
 func _build_coin() -> void:
+	var center := CenterContainer.new()
+	_board.add_child(center)
+	var disc := PanelContainer.new()
+	disc.custom_minimum_size = Vector2(168, 168)
+	UiTheme.paint_card(disc, UiTheme.COL_GOLD)
+	center.add_child(disc)
+	_coin_disc = disc
 	_coin_label = Label.new()
-	_coin_label.text = "CALL IT"
+	_coin_label.text = "?"
 	_coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_coin_label.add_theme_font_size_override("font_size", 36)
-	_coin_label.add_theme_color_override("font_color", UiTheme.COL_GOLD)
-	_board.add_child(_coin_label)
+	_coin_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_coin_label.add_theme_font_size_override("font_size", 48)
+	_coin_label.add_theme_color_override("font_color", UiTheme.COL_INK)
+	disc.add_child(_coin_label)
 	_build_choices(["Heads", "Tails"], ["HEADS", "TAILS"])
 
 
@@ -319,11 +404,12 @@ func _build_burst() -> void:
 	var label := Label.new()
 	label.text = "Collect the burst"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 22)
+	label.add_theme_font_size_override("font_size", 40)
+	label.add_theme_color_override("font_color", UiTheme.COL_GOLD)
 	_board.add_child(label)
 	_cell_labels.append(label)
 	var bar := ColorRect.new()
-	bar.custom_minimum_size = Vector2(0, 14)
+	bar.custom_minimum_size = Vector2(0, 18)
 	bar.color = Color("243352")
 	_board.add_child(bar)
 	_burst_fill = ColorRect.new()
@@ -359,9 +445,14 @@ func _step() -> int:
 
 func _refresh_bet() -> void:
 	_bet_label.text = "Bet  %s" % _amount(_bet)
+	if _limits:
+		_limits.text = "Min %s    Max %s    %s" % [_amount(_min), _amount(_max), _difficulty]
 	if _play == null:
 		return
-	_play.text = "%s   ·   %s" % [_action_name(), _amount(_bet)]
+	if _replay:
+		_play.text = "Play Again"
+	else:
+		_play.text = "%s   ·   %s" % [_action_name(), _amount(_bet)]
 
 
 func _action_name() -> String:
@@ -389,16 +480,24 @@ func _needs_choice() -> bool:
 
 
 func _on_play() -> void:
+	if _scratch_mode:
+		_reveal_scratch()
+		return
 	if _busy or _game_id == "":
 		return
 	if _needs_choice() and _choice == null:
 		_status.text = "Make a selection first."
 		_status.add_theme_color_override("font_color", UiTheme.COL_DANGER)
 		return
+	if _balance >= 0.0 and _balance < float(_bet):
+		_show_low_credits()
+		return
 	_busy = true
+	_replay = false
 	_play.disabled = true
 	_set_choices_disabled(true)
 	_result.text = ""
+	_delta.text = ""
 	_status.text = "Placing bet..."
 	_status.add_theme_color_override("font_color", UiTheme.COL_MUTED)
 	var request_id := "play-%s-%s" % [str(Time.get_ticks_msec()), str(randi() % 1000000)]
@@ -407,12 +506,21 @@ func _on_play() -> void:
 	if not is_inside_tree():
 		return
 	if not response.ok:
-		_finish_turn(str(response.error), true)
+		var message := str(response.error)
+		if message == "Insufficient credits":
+			_busy = false
+			_play.disabled = false
+			_set_choices_disabled(false)
+			_show_low_credits()
+			return
+		_finish_turn(message, true)
 		return
+	_held = response.data
 	await _animate(response.data)
 	if not is_inside_tree():
 		return
 	_show_result(response.data)
+	_replay = true
 	_finish_turn(str(response.data.get("title", "Ready")), false)
 
 
@@ -441,7 +549,7 @@ func _animate(data: Dictionary) -> void:
 		"rush":
 			await _animate_rush(presentation)
 		"scratch":
-			await _reveal_cells(presentation.get("cells", []), true)
+			await _play_scratch(presentation)
 		"wheel", "jackpot":
 			await _animate_wheel(presentation)
 		"coin":
@@ -463,19 +571,28 @@ func _animate_reels(data: Dictionary) -> void:
 	stopped.resize(_reels.size())
 	stopped.fill(false)
 	var elapsed := 0.0
-	while stopped.has(false):
-		await get_tree().create_timer(0.06).timeout
+	var spinning := true
+	while spinning:
+		await get_tree().process_frame
 		if not is_inside_tree():
 			return
-		elapsed += 0.06
+		var delta := clampf(get_process_delta_time(), 0.0, 0.034)
+		elapsed += delta
+		spinning = false
 		for index in _reels.size():
-			if elapsed < 0.7 + float(index) * 0.28:
-				_reels[index].show_random(rules)
+			var stop_at := (0.22 + float(index) * 0.07) if _quick else (0.42 + float(index) * 0.13)
+			if elapsed < stop_at:
+				spinning = true
+				var pace := clampf(elapsed / stop_at, 0.0, 1.0)
+				var speed := sin(pace * PI) * (1680.0 if _quick else 980.0)
+				_reels[index].advance(maxf(speed, 240.0) * delta, rules)
 			elif not stopped[index]:
 				var column: Array = grid[index] if index < grid.size() and grid[index] is Array else ["coin", "dollar", "star"]
-				_reels[index].show_column(column)
-				_reels[index].bounce()
+				_reels[index].land(column)
 				stopped[index] = true
+	await get_tree().create_timer(0.16).timeout
+	if not is_inside_tree():
+		return
 	var highlights: Array = data.get("highlights", [])
 	for index in _reels.size():
 		_reels[index].highlight([1] if _has_int(highlights, index) else [])
@@ -483,11 +600,20 @@ func _animate_reels(data: Dictionary) -> void:
 
 func _animate_rush(presentation: Dictionary) -> void:
 	var winning := int(presentation.get("winningLane", -1))
-	for step in 7:
+	_status.text = "3"
+	await get_tree().create_timer(0.22).timeout
+	if not is_inside_tree():
+		return
+	_status.text = "2"
+	await get_tree().create_timer(0.22).timeout
+	if not is_inside_tree():
+		return
+	_status.text = "1"
+	for step in 4:
 		for index in _choice_buttons.size():
 			var lit: bool = step % 2 == 0
 			_choice_buttons[index].modulate = Color(1.12, 1.05, 0.72) if lit else Color.WHITE
-		await get_tree().create_timer(0.08).timeout
+		await get_tree().create_timer(0.06).timeout
 		if not is_inside_tree():
 			return
 	for index in _choice_buttons.size():
@@ -501,40 +627,55 @@ func _animate_wheel(presentation: Dictionary) -> void:
 		return
 	var segments: Array = presentation.get("segments", [])
 	_wheel.segments = segments
+	_wheel.winner = -1
 	_wheel.spin_angle = 0.0
 	var count := maxi(segments.size(), 1)
 	var index := clampi(int(presentation.get("index", 0)), 0, count - 1)
 	var sweep := TAU / float(count)
-	var spins := 7.0 if str(presentation.get("kind", "")) == "jackpot" else 5.0
+	var spins := 2.0 if _quick else (4.0 if str(presentation.get("kind", "")) == "jackpot" else 3.0)
 	var target := -PI / 2.0 - sweep * (float(index) + 0.5) - TAU * spins
 	var tween := create_tween()
-	tween.tween_property(_wheel, "spin_angle", target, 2.2 + spins * 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	var duration := 0.55 if _quick else (1.45 if str(presentation.get("kind", "")) == "jackpot" else 1.05)
+	tween.tween_property(_wheel, "spin_angle", target, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	await tween.finished
+	if is_inside_tree():
+		_wheel.winner = index
+		_status.text = "Segment  %s" % _wheel._label(segments[index] if index < segments.size() else 0)
 
 
 func _animate_coin(presentation: Dictionary) -> void:
 	if _coin_label == null:
 		return
-	for step in 10:
-		_coin_label.text = "HEADS" if step % 2 == 0 else "TAILS"
-		await get_tree().create_timer(0.06 + float(step) * 0.012).timeout
+	if _coin_disc:
+		_coin_disc.pivot_offset = _coin_disc.custom_minimum_size * 0.5
+	for step in 4:
+		if _coin_disc:
+			var flip := create_tween()
+			flip.tween_property(_coin_disc, "scale:x", 0.08, 0.05)
+			await flip.finished
+		_coin_label.text = "H" if step % 2 == 0 else "T"
+		if _coin_disc:
+			var back := create_tween()
+			back.tween_property(_coin_disc, "scale:x", 1.0, 0.05)
+			await back.finished
 		if not is_inside_tree():
 			return
 	var face := str(presentation.get("face", ""))
-	_coin_label.text = face
+	_coin_label.text = "H" if face == "HEADS" else "T"
 	var won: bool = bool(presentation.get("won", false))
 	_coin_label.add_theme_color_override("font_color", UiTheme.COL_GREEN if won else UiTheme.COL_DANGER)
+	_status.text = "Heads" if face == "HEADS" else "Tails"
 
 
 func _animate_boxes(presentation: Dictionary) -> void:
 	var rewards: Array = presentation.get("rewards", [])
 	var chosen := int(presentation.get("index", -1))
 	for index in _choice_buttons.size():
-		await get_tree().create_timer(0.12).timeout
+		await get_tree().create_timer(0.07).timeout
 		if not is_inside_tree():
 			return
 		var multiplier := float(rewards[index]) if index < rewards.size() else 0.0
-		_choice_buttons[index].text = "Box %d\n%sx" % [index + 1, _amount(multiplier)]
+		_choice_buttons[index].text = "%sx" % _amount(multiplier)
 		if index == chosen:
 			_choice_buttons[index].theme_type_variation = "PrimaryButton"
 
@@ -543,11 +684,11 @@ func _reveal_cells(raw: Variant, uppercase: bool, matched: Variant = []) -> void
 	var values: Array = raw if raw is Array else []
 	var hits: Array = matched if matched is Array else []
 	for index in _cell_labels.size():
-		await get_tree().create_timer(0.12).timeout
+		await get_tree().create_timer(0.07).timeout
 		if not is_inside_tree():
 			return
 		var text := str(values[index]) if index < values.size() else ""
-		_cell_labels[index].text = text.to_upper() if uppercase else text
+		_cell_labels[index].text = _mark(text) if not uppercase else _mark(text)
 		_cell_labels[index].modulate.a = 0.2
 		var tween := _cell_labels[index].create_tween()
 		tween.tween_property(_cell_labels[index], "modulate:a", 1.0, 0.16)
@@ -560,15 +701,16 @@ func _animate_drop(presentation: Dictionary) -> void:
 	var combo := int(presentation.get("combo", 0))
 	for index in _cell_labels.size():
 		var text := str(gems[index]) if index < gems.size() else ""
-		_cell_labels[index].text = text
+		_cell_labels[index].text = _mark(text)
 		_cell_labels[index].modulate.a = 0.0
 		if index < combo:
 			_cell_labels[index].add_theme_color_override("font_color", UiTheme.COL_GOLD)
 		var tween := _cell_labels[index].create_tween()
 		tween.tween_property(_cell_labels[index], "modulate:a", 1.0, 0.2)
-		await get_tree().create_timer(0.14).timeout
+		await get_tree().create_timer(0.08).timeout
 		if not is_inside_tree():
 			return
+	_status.text = "Combo  %d" % combo
 
 
 func _animate_burst(presentation: Dictionary) -> void:
@@ -581,9 +723,10 @@ func _animate_burst(presentation: Dictionary) -> void:
 		_burst_fill.anchor_right = 0.0
 		var bar_tween := create_tween()
 		bar_tween.tween_property(_burst_fill, "anchor_right", 1.0, float(seconds) * 0.16).set_trans(Tween.TRANS_SINE)
-	for second in seconds:
-		label.text = "0:%02d" % (seconds - second)
-		await get_tree().create_timer(0.16).timeout
+	var ticks := mini(seconds, 4)
+	for second in ticks:
+		label.text = "0:%02d" % (ticks - second)
+		await get_tree().create_timer(0.12).timeout
 		if not is_inside_tree():
 			return
 	label.text = "Collected  %d" % count
@@ -592,16 +735,224 @@ func _animate_burst(presentation: Dictionary) -> void:
 
 func _show_result(data: Dictionary) -> void:
 	var win := float(data.get("winAmount", 0))
-	_credits.text = "Credits  %s" % _amount(data.get("balance", 0))
+	var next := float(data.get("balance", _balance))
+	_set_balance(next, true)
 	if win > 0.0:
-		_result.text = "Won  %s" % _amount(win)
+		_result.text = "WIN\n+%s Credits" % _amount(win)
 		_result.add_theme_color_override("font_color", UiTheme.COL_GREEN)
+		_delta.text = "+%s Credits" % _amount(win)
+		_delta.add_theme_color_override("font_color", UiTheme.COL_GREEN)
 		var tween := create_tween()
 		_result.modulate = Color(1.25, 1.12, 0.7)
-		tween.tween_property(_result, "modulate", Color.WHITE, 0.35)
+		tween.tween_property(_result, "modulate", Color.WHITE, 0.28)
 	else:
-		_result.text = "No win"
+		_result.text = "LOSS\n-%s Credits" % _amount(_bet)
 		_result.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+		_delta.text = "-%s Credits" % _amount(_bet)
+		_delta.add_theme_color_override("font_color", UiTheme.COL_DANGER)
+
+
+func _set_balance(next: float, animate: bool) -> void:
+	var start := _shown_balance if _shown_balance >= 0.0 else next
+	_balance = next
+	ApiClient.balance_cache = next
+	if not animate or is_equal_approx(start, next):
+		_shown_balance = next
+		_credits.text = "💰 %s Credits" % _amount(next)
+		return
+	var tween := create_tween()
+	tween.tween_method(func(value: float) -> void:
+		_shown_balance = value
+		_credits.text = "💰 %s Credits" % _amount(value)
+	, start, next, 0.35)
+
+
+func _quick_bet(label: String) -> void:
+	if _busy:
+		return
+	var mid := clampi(int(round(float(_min + _max) * 0.5)), _min, _max)
+	if label == "Max":
+		_bet = _max
+	elif label == "Mid":
+		_bet = mid
+	else:
+		_bet = _min
+	_refresh_bet()
+
+
+func _category_for(slug: String) -> String:
+	match slug:
+		"lucky-dollar", "golden-fortune":
+			return "SLOTS"
+		"dollar-rush":
+			return "REACTION"
+		"scratch-mania":
+			return "SCRATCH"
+		"lucky-spin", "jackpot-wheel":
+			return "SPIN"
+		"coin-flip", "treasure-box":
+			return "CHOICE"
+		"cash-match", "diamond-drop":
+			return "MATCH"
+		"bonus-burst":
+			return "BONUS"
+		_:
+			return ""
+
+
+func _play_scratch(presentation: Dictionary) -> void:
+	var cells: Array = presentation.get("cells", []) if presentation.get("cells", []) is Array else []
+	_scratch_done = false
+	_scratch_mode = true
+	for index in _scratch_buttons.size():
+		_scratch_buttons[index].text = "?"
+		_scratch_buttons[index].disabled = false
+		_scratch_buttons[index].set_meta("prize", str(cells[index]) if index < cells.size() else "")
+		_scratch_buttons[index].set_meta("open", false)
+	_status.text = "Scratch the card"
+	_play.disabled = false
+	_play.text = "Reveal"
+	while not _scratch_done and is_inside_tree():
+		await get_tree().process_frame
+	_scratch_mode = false
+
+
+func _scratch_at(index: int) -> void:
+	if not _scratch_mode or index >= _scratch_buttons.size():
+		return
+	var button := _scratch_buttons[index]
+	if bool(button.get_meta("open", false)):
+		return
+	button.set_meta("open", true)
+	button.text = _mark(str(button.get_meta("prize", "")))
+	button.disabled = true
+	var closed := 0
+	for other in _scratch_buttons:
+		if not bool(other.get_meta("open", false)):
+			closed += 1
+	_status.text = "Scratch  %d left" % closed
+	if closed == 0:
+		_scratch_done = true
+
+
+func _reveal_scratch() -> void:
+	for button in _scratch_buttons:
+		button.set_meta("open", true)
+		button.text = _mark(str(button.get_meta("prize", "")))
+		button.disabled = true
+	_scratch_done = true
+
+
+func _show_low_credits() -> void:
+	if _low:
+		_low.visible = true
+	_status.text = "Not enough credits"
+
+
+func _show_ask() -> void:
+	if _low:
+		_low.visible = false
+	if _ask:
+		_ask.visible = true
+		_ask_amount.text = str(maxi(_min * 10, 50))
+		_ask_note.text = ""
+
+
+func _send_request() -> void:
+	var amount := int(_ask_amount.text)
+	if amount <= 0:
+		_ask_note.text = "Enter an amount."
+		return
+	_ask_note.text = "Sending..."
+	var response: Dictionary = await ApiClient.request_credits(amount)
+	if not is_inside_tree():
+		return
+	if response.ok:
+		_ask_note.text = "Request sent. An admin will review it."
+	else:
+		_ask_note.text = str(response.error)
+
+
+func _build_overlays() -> void:
+	_low = _overlay_panel()
+	var low_box := _low.get_meta("box") as VBoxContainer
+	var low_title := Label.new()
+	low_title.text = "Not Enough Credits"
+	UiTheme.style_title(low_title, 28)
+	low_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	low_box.add_child(low_title)
+	var low_copy := Label.new()
+	low_copy.text = "Your current balance is too low to play this game."
+	low_copy.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	low_copy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	low_box.add_child(low_copy)
+	var low_meta := Label.new()
+	low_meta.name = "Meta"
+	low_meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	low_box.add_child(low_meta)
+	var ask := Button.new()
+	ask.text = "Ask Admin for Credits"
+	ask.theme_type_variation = "PrimaryButton"
+	ask.custom_minimum_size = Vector2(0, 48)
+	ask.pressed.connect(_show_ask)
+	low_box.add_child(ask)
+	var back := Button.new()
+	back.text = "Back to Games"
+	back.custom_minimum_size = Vector2(0, 48)
+	back.pressed.connect(AppState.go_slots)
+	low_box.add_child(back)
+	_low.visibility_changed.connect(func() -> void:
+		if _low.visible:
+			low_meta.text = "Current Credits: %s\nMinimum Bet: %s" % [_amount(maxf(_balance, 0.0)), _amount(_min)]
+	)
+
+	_ask = _overlay_panel()
+	var ask_box := _ask.get_meta("box") as VBoxContainer
+	var ask_title := Label.new()
+	ask_title.text = "Send a credit request to the administrator?"
+	ask_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ask_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ask_box.add_child(ask_title)
+	_ask_amount = LineEdit.new()
+	_ask_amount.placeholder_text = "Amount"
+	_ask_amount.custom_minimum_size = Vector2(0, 48)
+	ask_box.add_child(_ask_amount)
+	_ask_note = Label.new()
+	_ask_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ask_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ask_box.add_child(_ask_note)
+	var send := Button.new()
+	send.text = "Send Request"
+	send.theme_type_variation = "PrimaryButton"
+	send.custom_minimum_size = Vector2(0, 48)
+	send.pressed.connect(_send_request)
+	ask_box.add_child(send)
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.custom_minimum_size = Vector2(0, 48)
+	cancel.pressed.connect(func() -> void: _ask.visible = false)
+	ask_box.add_child(cancel)
+
+
+func _overlay_panel() -> Control:
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.visible = false
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(320, 0)
+	UiTheme.paint_glass(panel)
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	panel.add_child(box)
+	dim.set_meta("box", box)
+	return dim
 
 
 func _map_grid(raw: Variant) -> Array:
@@ -624,6 +975,63 @@ func _has_int(values: Array, wanted: int) -> bool:
 	return false
 
 
+func _layout_board() -> void:
+	if not _reels.is_empty():
+		var face := _reel_face(_reels.size())
+		for reel in _reels:
+			if reel is ReelView:
+				reel.set_face_size(face)
+	if _wheel:
+		var diameter := _wheel_diameter()
+		_wheel.custom_minimum_size = Vector2(diameter, diameter)
+
+
+func _reel_face(count: int) -> Vector2:
+	var width := minf(size.x, 760.0) - 72.0
+	if width < 180.0:
+		width = 300.0
+	var gap := 8.0 * float(maxi(count - 1, 0))
+	var minimum := 50.0 if count >= 5 else 72.0
+	var face_w := clampf((width - gap) / float(maxi(count, 1)), minimum, 112.0)
+	return Vector2(face_w, clampf(face_w * 0.96, minimum, 108.0))
+
+
+func _wheel_diameter() -> float:
+	var view := minf(size.x, size.y)
+	var cap := 360.0 if _slug == "jackpot-wheel" else 280.0
+	return clampf(view - 88.0, 210.0, cap)
+
+
+func _mark(symbol: String) -> String:
+	match symbol.to_lower():
+		"coin", "dollar", "$":
+			return "$"
+		"star":
+			return "★"
+		"diamond":
+			return "◆"
+		"seven":
+			return "7"
+		"bonus":
+			return "B"
+		"ruby":
+			return "R"
+		"gold":
+			return "G"
+		"jade":
+			return "J"
+		"blue":
+			return "U"
+		"heads":
+			return "H"
+		"tails":
+			return "T"
+		_:
+			if symbol.length() <= 2:
+				return symbol.to_upper()
+			return symbol.substr(0, 1).to_upper()
+
+
 func _amount(value: Variant) -> String:
 	var amount := float(value)
 	if is_equal_approx(amount, round(amount)):
@@ -633,6 +1041,7 @@ func _amount(value: Variant) -> String:
 
 class WheelFace extends Control:
 	var segments: Array = [0, 1, 2, 5, 0, 10]
+	var winner := -1
 	var spin_angle := 0.0:
 		set(value):
 			spin_angle = value
@@ -640,36 +1049,42 @@ class WheelFace extends Control:
 
 	func _draw() -> void:
 		var center := size * 0.5
-		var radius := minf(size.x, size.y) * 0.42
+		var radius := minf(size.x, size.y) * 0.46
 		if radius < 8.0:
 			return
 		var count := maxi(segments.size(), 1)
 		var sweep := TAU / float(count)
 		var font := get_theme_default_font()
-		var font_size := 15
+		var font_size := clampi(int(radius / 7.0), 16, 28)
+		draw_circle(center, radius + 10.0, Color("070B14"))
 		for index in count:
 			var start := spin_angle + sweep * float(index)
 			var points := PackedVector2Array()
 			points.append(center)
-			for step in 9:
-				var angle := start + sweep * float(step) / 8.0
+			for step in 10:
+				var angle := start + sweep * float(step) / 9.0
 				points.append(center + Vector2(cos(angle), sin(angle)) * radius)
-			var color := Color("F5C542") if index % 2 == 0 else Color("1B2740")
-			if float(segments[index]) >= 50.0:
+			var color := Color("F5C542") if index % 2 == 0 else Color("18243A")
+			if float(segments[index]) >= 10.0:
 				color = Color("FFE38A")
+			if index == winner:
+				color = Color("3DDC97")
 			draw_colored_polygon(points, color)
 			if font != null:
 				var mid := start + sweep * 0.5
 				var text := _label(segments[index])
 				var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-				var pos := center + Vector2(cos(mid), sin(mid)) * radius * 0.62 - text_size * 0.5
-				var ink := Color("141008") if color.r > 0.7 else Color("F4F7FB")
+				var at := center + Vector2(cos(mid), sin(mid)) * radius * 0.66
+				draw_circle(at, font_size * 0.72, Color(0, 0, 0, 0.28))
+				var pos := at - Vector2(text_size.x * 0.5, -font.get_ascent(font_size) * 0.32)
+				var ink := Color("141008") if color.r > 0.7 or index == winner else Color("F4F7FB")
 				draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, ink)
-		draw_arc(center, radius + 8.0, 0.0, TAU, 72, Color("F5C542"), 4.0, true)
-		var tip := center + Vector2(0, -radius + 8.0)
-		var left := center + Vector2(-11, -radius - 12.0)
-		var right := center + Vector2(11, -radius - 12.0)
-		draw_colored_polygon(PackedVector2Array([tip, left, right]), Color("F5C542"))
+		draw_arc(center, radius + 6.0, 0.0, TAU, 80, Color("F5C542"), 6.0, true)
+		draw_circle(center, 10.0, Color("F5C542"))
+		var tip := center + Vector2(0, -radius + 6.0)
+		var left := center + Vector2(-14, -radius - 16.0)
+		var right := center + Vector2(14, -radius - 16.0)
+		draw_colored_polygon(PackedVector2Array([tip, left, right]), Color("FFF8E6"))
 
 	func _label(value: Variant) -> String:
 		var amount := float(value)

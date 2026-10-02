@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { pool, withTransaction } from "../db";
 import { AppError } from "../errors";
 import { resolveRound } from "./gamePlay";
+import { getAssignedTuning } from "./gameProfileService";
 
 export type SlotGame = {
   id: string;
@@ -9,6 +10,7 @@ export type SlotGame = {
   slug: string;
   description: string;
   difficulty: string;
+  category: string;
   minimumBet: number;
   maximumBet: number;
   isActive: boolean;
@@ -16,7 +18,7 @@ export type SlotGame = {
 
 export async function listActiveGames(): Promise<SlotGame[]> {
   const result = await pool.query(
-    `SELECT id, name, slug, description, difficulty, minimum_bet, maximum_bet, is_active
+    `SELECT id, name, slug, description, difficulty, category, minimum_bet, maximum_bet, is_active
      FROM slot_games
      WHERE is_active = true
      ORDER BY CASE slug
@@ -96,7 +98,7 @@ export async function spin(
 async function completeSpin(userId: string, gameId: string, betAmount: number, choice?: unknown): Promise<PlayReceipt> {
   return withTransaction(async (client) => {
     const gameResult = await client.query(
-      `SELECT id, name, slug, description, difficulty, minimum_bet, maximum_bet, is_active
+      `SELECT id, name, slug, description, difficulty, category, minimum_bet, maximum_bet, is_active
        FROM slot_games
        WHERE (id::text = $1 OR slug = $1) AND is_active = true`,
       [gameId],
@@ -125,7 +127,8 @@ async function completeSpin(userId: string, gameId: string, betAmount: number, c
       throw new AppError(400, "Insufficient credits");
     }
 
-    const round = resolveRound(game.slug, choice);
+    const tuning = await getAssignedTuning(client, userId, game.id, game.slug, game.difficulty);
+    const round = resolveRound(game.slug, choice, tuning.difficulty, tuning.parameters);
     const winAmount = money(betAmount * round.multiplier);
     const afterBet = money(Number(current.balance) - betAmount);
     await client.query("UPDATE wallets SET balance = $2, updated_at = now() WHERE user_id = $1", [
@@ -224,6 +227,7 @@ function mapGame(row: {
   slug: string;
   description: string;
   difficulty: string;
+  category?: string;
   minimum_bet: number;
   maximum_bet: number;
   is_active: boolean;
@@ -234,6 +238,7 @@ function mapGame(row: {
     slug: row.slug,
     description: row.description,
     difficulty: row.difficulty,
+    category: row.category ?? "SLOTS",
     minimumBet: Number(row.minimum_bet),
     maximumBet: Number(row.maximum_bet),
     isActive: row.is_active,

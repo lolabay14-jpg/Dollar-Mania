@@ -1,5 +1,6 @@
 import { randomInt } from "crypto";
 import { AppError } from "../errors";
+import { clampParameter } from "./gameParameters";
 import { playRound, rulesForSlug, type SymbolId } from "./slotRules";
 
 export type PlayRound = {
@@ -27,38 +28,103 @@ const SLUG_ALIASES: Record<string, string> = {
   dollar_rush: "dollar-rush",
 };
 
-export function resolveRound(slug: string, choice?: unknown): PlayRound {
+export type RoundParameters = Record<string, number>;
+
+export function resolveRound(
+  slug: string,
+  choice?: unknown,
+  difficulty = "MEDIUM",
+  parameters: RoundParameters = {},
+): PlayRound {
+  const round = resolveBase(slug, choice, parameters);
+  const tuned = applyDifficulty(round, difficulty, () => resolveBase(slug, choice, parameters));
+  return applyRewardScale(slug, tuned, parameters);
+}
+
+function resolveBase(slug: string, choice: unknown, parameters: RoundParameters): PlayRound {
   const game = SLUG_ALIASES[slug] ?? slug;
   switch (game) {
     case "lucky-dollar":
-      return luckyDollar();
+      return withLossReroll(slug, "lineBoost", parameters, luckyDollar);
     case "golden-fortune":
-      return goldenFortune();
+      return withLossReroll(slug, "lineBoost", parameters, goldenFortune);
     case "dollar-rush":
-      return dollarRush(choice);
+      return dollarRush(choice, parameters);
     case "scratch-mania":
-      return scratchMania();
+      return withLossReroll(slug, "matchBoost", parameters, scratchMania);
     case "lucky-spin":
-      return spinWheel("wheel", [0, 0, 0, 1, 0, 2, 0, 0, 5, 0, 1, 0], [18, 14, 14, 10, 12, 8, 12, 10, 4, 12, 8, 12]);
+      return spinWheel(slug, "wheel", [0, 0, 0, 1, 0, 2, 0, 0, 5, 0, 1, 0], [18, 14, 14, 10, 12, 8, 12, 10, 4, 12, 8, 12], parameters);
     case "coin-flip":
-      return coinFlip(choice);
+      return coinFlip(choice, parameters);
     case "treasure-box":
-      return treasureBox(choice);
+      return treasureBox(choice, parameters);
     case "cash-match":
-      return cashMatch();
+      return cashMatch(parameters);
     case "diamond-drop":
-      return diamondDrop();
+      return diamondDrop(parameters);
     case "bonus-burst":
-      return bonusBurst();
+      return bonusBurst(parameters);
     case "jackpot-wheel":
       return spinWheel(
+        slug,
         "jackpot",
         [0, 1, 0, 2, 0, 5, 0, 1, 0, 10, 0, 50],
         [20, 8, 16, 6, 16, 3, 14, 8, 12, 2, 14, 1],
+        parameters,
       );
     default:
       throw new AppError(400, "This game is not ready yet.");
   }
+}
+
+function applyRewardScale(slug: string, round: PlayRound, parameters: RoundParameters): PlayRound {
+  const scale = clampParameter(slug, "rewardScale", parameters.rewardScale);
+  if (round.multiplier === 0 || Math.abs(scale - 1) < 0.0001) {
+    return round;
+  }
+  return {
+    ...round,
+    multiplier: Math.round(round.multiplier * scale * 100) / 100,
+  };
+}
+
+function withLossReroll(
+  slug: string,
+  key: string,
+  parameters: RoundParameters,
+  build: () => PlayRound,
+): PlayRound {
+  const round = build();
+  const chance = clampParameter(slug, key, parameters[key]);
+  if (round.multiplier === 0 && chance > 0 && randomInt(100) < chance) {
+    return build();
+  }
+  return round;
+}
+
+function applyDifficulty(round: PlayRound, difficulty: string, reroll: () => PlayRound): PlayRound {
+  const level = difficulty.toUpperCase();
+  if (level === "EASY" && round.multiplier === 0 && randomInt(100) < 30) {
+    return reroll();
+  }
+  if (level === "HARD" && round.multiplier > 0 && round.multiplier < 5 && randomInt(100) < 45) {
+    return reroll();
+  }
+  if (level === "HARD" && round.multiplier >= 8) {
+    return {
+      ...round,
+      multiplier: Math.round(round.multiplier * 1.5 * 100) / 100,
+      title: `${round.title} · high risk`,
+    };
+  }
+  if (level === "MEDIUM" && round.multiplier >= 10) {
+    return {
+      ...round,
+      multiplier: Math.round(round.multiplier * 1.15 * 100) / 100,
+      title: round.title,
+    };
+  }
+  return round;
 }
 
 function luckyDollar(): PlayRound {
@@ -104,12 +170,12 @@ function goldenFortune(): PlayRound {
   };
 }
 
-function dollarRush(choice: unknown): PlayRound {
+function dollarRush(choice: unknown, parameters: RoundParameters): PlayRound {
   const lane = wholeNumber(choice);
   if (lane === null || lane < 0 || lane > 2) {
     throw new AppError(400, "Choose a lane first.");
   }
-  const hot = randomInt(100) < 30;
+  const hot = randomInt(100) < clampParameter("dollar-rush", "hitChance", parameters.hitChance);
   const winningLane = hot ? randomInt(3) : -1;
   const hit = lane === winningLane;
   return {
@@ -139,8 +205,16 @@ function scratchMania(): PlayRound {
   };
 }
 
-function spinWheel(kind: "wheel" | "jackpot", segments: number[], weights: number[]): PlayRound {
-  const index = weightedIndex(weights);
+function spinWheel(
+  slug: string,
+  kind: "wheel" | "jackpot",
+  segments: number[],
+  weights: number[],
+  parameters: RoundParameters,
+): PlayRound {
+  const bias = clampParameter(slug, "prizeBias", parameters.prizeBias);
+  const tuned = weights.map((weight, index) => (segments[index] > 0 ? weight + bias : weight));
+  const index = weightedIndex(tuned);
   const multiplier = segments[index] ?? 0;
   const title = multiplier <= 0 ? "No prize" : multiplier >= 50 ? "Jackpot" : `${multiplier}x segment`;
   return {
@@ -150,12 +224,12 @@ function spinWheel(kind: "wheel" | "jackpot", segments: number[], weights: numbe
   };
 }
 
-function coinFlip(choice: unknown): PlayRound {
+function coinFlip(choice: unknown, parameters: RoundParameters): PlayRound {
   const call = String(choice ?? "").toUpperCase();
   if (call !== "HEADS" && call !== "TAILS") {
     throw new AppError(400, "Call heads or tails first.");
   }
-  const won = randomInt(100) < 47;
+  const won = randomInt(100) < clampParameter("coin-flip", "winChance", parameters.winChance);
   const face = won ? call : call === "HEADS" ? "TAILS" : "HEADS";
   return {
     multiplier: won ? 1.9 : 0,
@@ -164,13 +238,13 @@ function coinFlip(choice: unknown): PlayRound {
   };
 }
 
-function treasureBox(choice: unknown): PlayRound {
+function treasureBox(choice: unknown, parameters: RoundParameters): PlayRound {
   const index = wholeNumber(choice);
   if (index === null || index < 0 || index > 3) {
     throw new AppError(400, "Choose a box first.");
   }
   const table = [0, 1, 2, 4, 8, 12];
-  const weights = [60, 22, 10, 5, 2, 1];
+  const weights = [clampParameter("treasure-box", "emptyWeight", parameters.emptyWeight), 22, 10, 5, 2, 1];
   const rewards = [0, 1, 2, 3].map(() => pickWeighted(table, weights));
   rewards[index] = pickWeighted(table, weights);
   return {
@@ -180,12 +254,13 @@ function treasureBox(choice: unknown): PlayRound {
   };
 }
 
-function cashMatch(): PlayRound {
+function cashMatch(parameters: RoundParameters): PlayRound {
+  const boost = clampParameter("cash-match", "pairBoost", parameters.pairBoost);
   const tiers = [
     { pairs: 0, multiplier: 0, weight: 55 },
-    { pairs: 1, multiplier: 1, weight: 30 },
-    { pairs: 2, multiplier: 3, weight: 12 },
-    { pairs: 3, multiplier: 8, weight: 3 },
+    { pairs: 1, multiplier: 1, weight: 30 + boost },
+    { pairs: 2, multiplier: 3, weight: 12 + boost },
+    { pairs: 3, multiplier: 8, weight: 3 + boost },
   ];
   const tier = tiers[weightedIndex(tiers.map((entry) => entry.weight))];
   const glyphs = ["$", "*", "#", "7", "O", "+", "=", "@"];
@@ -215,9 +290,10 @@ function cashMatch(): PlayRound {
   };
 }
 
-function diamondDrop(): PlayRound {
+function diamondDrop(parameters: RoundParameters): PlayRound {
+  const boost = clampParameter("diamond-drop", "comboBoost", parameters.comboBoost);
   const combos = [0, 1, 2, 3, 4, 5];
-  const weights = [50, 28, 14, 5, 2, 1];
+  const weights = [50, 28 + boost, 14 + boost, 5 + boost, 2 + boost, 1 + boost];
   const payouts = [0, 1, 2, 4, 6, 10];
   const combo = combos[weightedIndex(weights)];
   const gems = ["RUBY", "GOLD", "JADE", "BLUE"];
@@ -238,9 +314,10 @@ function diamondDrop(): PlayRound {
   };
 }
 
-function bonusBurst(): PlayRound {
+function bonusBurst(parameters: RoundParameters): PlayRound {
+  const boost = clampParameter("bonus-burst", "collectBoost", parameters.collectBoost);
   const counts = [0, 1, 2, 3, 4, 5];
-  const weights = [40, 28, 16, 9, 5, 2];
+  const weights = [40, 28 + boost, 16 + boost, 9 + boost, 5 + boost, 2 + boost];
   const payouts = [0, 0.5, 1, 2, 4, 8];
   const count = counts[weightedIndex(weights)];
   return {

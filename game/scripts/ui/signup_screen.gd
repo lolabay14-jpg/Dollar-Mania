@@ -8,11 +8,16 @@ var _busy := false
 func _ready() -> void:
 	UiTheme.apply(self)
 	$Background.color = UiTheme.COL_BG
-	UiTheme.style_title(%Title, 36)
+	UiTheme.mood(self, "calm")
+	UiTheme.style_title(%Title, 34)
 	%Title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	UiTheme.style_muted(%Heading)
+	%Heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	UiTheme.paint_glass(%Card)
 	UiTheme.style_muted(%ErrorLabel)
 	%ErrorLabel.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	%CreateButton.theme_type_variation = "PrimaryButton"
+	%LoginButton.theme_type_variation = "TextLink"
 	%Username.placeholder_text = "Username"
 	%Email.placeholder_text = "Email"
 	%Password.placeholder_text = "Password"
@@ -27,8 +32,9 @@ func _ready() -> void:
 	%ConfirmPassword.text_submitted.connect(func(_text: String) -> void: _submit())
 	resized.connect(_fit)
 	_fit()
-	UiMotion.fade_in(%Column)
+	UiMotion.bind_fields(self)
 	UiMotion.bind_tree(self)
+	UiMotion.enter(%Column, SceneTransition.slide)
 	%Username.grab_focus()
 
 
@@ -89,3 +95,4 @@ func _validate(username_value: String, email: String, password: String, confirm_
 func _show_error(message: String) -> void:
 	%ErrorLabel.text = message
 	%ErrorLabel.add_theme_color_override("font_color", UiTheme.COL_DANGER)
+	UiTheme.paint_glass(%Card, message != "")

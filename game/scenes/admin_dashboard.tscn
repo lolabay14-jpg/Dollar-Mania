@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://game/scripts/ui/admin_dashboard.gd" id="1_admin"]
+[ext_resource type="Script" path="res://game/scripts/ui/backdrop.gd" id="2_backdrop"]
 
 [node name="AdminDashboard" type="Control"]
 layout_mode = 3
@@ -19,7 +20,17 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.043137, 0.070588, 0.12549, 1)
+color = Color(0.027, 0.043, 0.078, 1)
+
+[node name="Dust" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("2_backdrop")
 
 [node name="Scroll" type="ScrollContainer" parent="."]
 layout_mode = 1

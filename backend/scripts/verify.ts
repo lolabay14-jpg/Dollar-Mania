@@ -110,6 +110,81 @@ async function main() {
   check("player blocked from admin", playerAdmin.status === 403);
   const adminUsers = await send(base, "GET", "/api/admin/users", undefined, adminToken);
   check("admin lists users", adminUsers.status === 200 && Array.isArray(adminUsers.body.users));
+  const known = adminUsers.body.users?.find((user: { email?: string }) => user.email);
+  const found = await send(
+    base,
+    "GET",
+    `/api/admin/users/search?email=${encodeURIComponent(String(known?.email ?? ""))}`,
+    undefined,
+    adminToken,
+  );
+  check(
+    "admin search by email",
+    found.status === 200 &&
+      found.body.user?.email === known?.email &&
+      found.body.user?.username &&
+      found.body.user?.role === "PLAYER" &&
+      typeof found.body.user?.balance === "number",
+  );
+  const playerSearch = await send(
+    base,
+    "GET",
+    `/api/admin/users/search?email=${encodeURIComponent(String(known?.email ?? "nobody@dollarmania.local"))}`,
+    undefined,
+    playerToken,
+  );
+  check("player cannot search users", playerSearch.status === 403);
+  const missingEmail = await send(
+    base,
+    "GET",
+    "/api/admin/users/search?email=missing-user@dollarmania.local",
+    undefined,
+    adminToken,
+  );
+  check("unknown email", missingEmail.status === 404);
+  const badEmail = await send(base, "GET", "/api/admin/users/search?email=not-an-email", undefined, adminToken);
+  check("invalid search email", badEmail.status === 400);
+  const controlPlayer = await send(
+    base,
+    "GET",
+    `/api/admin/users/player?email=${encodeURIComponent(`player_${stamp}@dollarmania.local`)}`,
+    undefined,
+    adminToken,
+  );
+  check(
+    "game control finds player",
+    controlPlayer.status === 200 &&
+      controlPlayer.body.player?.username === `player_${stamp}` &&
+      controlPlayer.body.player?.email === `player_${stamp}@dollarmania.local` &&
+      typeof controlPlayer.body.player?.credits === "number" &&
+      controlPlayer.body.player?.status === "Active" &&
+      controlPlayer.body.player?.role === "PLAYER",
+  );
+  const missingPlayer = await send(
+    base,
+    "GET",
+    "/api/admin/users/player?email=missing-player@dollarmania.local",
+    undefined,
+    adminToken,
+  );
+  check("player not found", missingPlayer.status === 404 && missingPlayer.body.error === "Player not found");
+  const adminSelf = await send(base, "GET", `/api/admin/users/${adminLogin.body.user?.id}`, undefined, adminToken);
+  const adminTarget = await send(
+    base,
+    "GET",
+    `/api/admin/users/player?email=${encodeURIComponent(String(adminSelf.body.user?.email ?? ""))}`,
+    undefined,
+    adminToken,
+  );
+  check("admin cannot be a game control target", adminTarget.status === 400);
+  const playerLookup = await send(
+    base,
+    "GET",
+    `/api/admin/users/player?email=${encodeURIComponent(`player_${stamp}@dollarmania.local`)}`,
+    undefined,
+    playerToken,
+  );
+  check("player cannot search game control targets", playerLookup.status === 403);
 
   const ownProfile = await send(base, "GET", "/api/player/profile", undefined, playerToken);
   check("player reads own profile", ownProfile.status === 200 && ownProfile.body.profile?.username === (process.env.DEFAULT_PLAYER_USERNAME ?? "player1"));
@@ -172,10 +247,142 @@ async function main() {
   check("bet above maximum", highBet.status === 400);
   const badBet = await send(base, "POST", "/api/games/lucky-dollar/spin", { betAmount: 0 }, newToken);
   check("invalid bet", badBet.status === 400);
+  const negativeBet = await send(base, "POST", "/api/games/lucky-dollar/spin", { betAmount: -5 }, newToken);
+  check("negative bet", negativeBet.status === 400);
 
   await send(base, "POST", `/api/admin/users/${newId}/credits`, { amount: 400, action: "add" }, adminToken);
   const games = await send(base, "GET", "/api/player/games", undefined, newToken);
   check("all active games", games.status === 200 && games.body.games?.length >= 11);
+  check(
+    "player games hide admin profiles",
+    Array.isArray(games.body.games) &&
+      games.body.games.every(
+        (game: { assignedProfile?: string; parameterDefs?: unknown }) =>
+          game.assignedProfile === undefined && game.parameterDefs === undefined,
+      ),
+  );
+  const blockedProfile = await send(
+    base,
+    "PUT",
+    `/api/admin/users/${newId}/game-profiles/coin-flip`,
+    { profile: "MEDIUM", parameters: { rewardScale: 2, winChance: 60 } },
+    newToken,
+  );
+  check("player cannot set game profile", blockedProfile.status === 403);
+  const unknownParameter = await send(
+    base,
+    "PUT",
+    `/api/admin/users/${newId}/game-profiles/coin-flip`,
+    { profile: "MEDIUM", parameters: { winAmount: 100, rewardScale: 1, winChance: 47 } },
+    adminToken,
+  );
+  check("unknown game parameter rejected", unknownParameter.status === 400);
+  const wideScale = await send(
+    base,
+    "PUT",
+    `/api/admin/users/${newId}/game-profiles/coin-flip`,
+    { profile: "MEDIUM", parameters: { rewardScale: 9, winChance: 47 } },
+    adminToken,
+  );
+  check("reward scale out of range", wideScale.status === 400);
+  await send(
+    base,
+    "PUT",
+    `/api/admin/users/${newId}/game-profiles/coin-flip`,
+    { profile: "EASY", parameters: { rewardScale: 1, winChance: 47 } },
+    adminToken,
+  );
+  const assigned = await send(
+    base,
+    "PUT",
+    `/api/admin/users/${newId}/game-profiles/coin-flip`,
+    { profile: "MEDIUM", parameters: { rewardScale: 2, winChance: 60 } },
+    adminToken,
+  );
+  const profileList = await send(base, "GET", `/api/admin/users/${newId}/game-profiles`, undefined, adminToken);
+  const coinProfiles = (profileList.body.profiles ?? []).filter(
+    (row: { slug: string }) => row.slug === "coin-flip",
+  );
+  check(
+    "one game profile per player",
+    assigned.status === 200 &&
+      coinProfiles.length === 1 &&
+      coinProfiles[0].assignedProfile === "MEDIUM" &&
+      coinProfiles[0].parameters?.rewardScale === 2 &&
+      coinProfiles[0].parameters?.winChance === 60 &&
+      coinProfiles[0].gameDifficulty === "MEDIUM",
+  );
+  let scaledWin = false;
+  for (let attempt = 0; attempt < 15 && !scaledWin; attempt += 1) {
+    const scaled = await send(
+      base,
+      "POST",
+      "/api/games/coin-flip/spin",
+      { betAmount: 10, choice: "HEADS", winAmount: 99999 },
+      newToken,
+    );
+    if (scaled.status !== 200) {
+      check("profiled coin spin", false, JSON.stringify(scaled.body));
+      break;
+    }
+    const win = Number(scaled.body.winAmount);
+    if (win === 0) {
+      continue;
+    }
+    scaledWin = win === 38;
+    check("profile reward scale applied", scaledWin, `win ${win}`);
+    break;
+  }
+  check("scaled coin win observed", scaledWin);
+  const resetProfile = await send(
+    base,
+    "PUT",
+    `/api/admin/users/${newId}/game-profiles/coin-flip`,
+    { profile: "DEFAULT" },
+    adminToken,
+  );
+  const resetList = await send(base, "GET", `/api/admin/users/${newId}/game-profiles`, undefined, adminToken);
+  const resetCoin = (resetList.body.profiles ?? []).find((row: { slug: string }) => row.slug === "coin-flip");
+  check(
+    "game profile reset",
+    resetProfile.status === 200 && resetCoin?.assignedProfile === "DEFAULT" && resetCoin?.parameters?.rewardScale === 1,
+  );
+  const profileActivity = await send(base, "GET", "/api/admin/activity", undefined, adminToken);
+  check(
+    "game profile activity recorded",
+    profileActivity.body.activity?.some(
+      (row: { action: string; targetUsername: string }) =>
+        row.action === "SET_GAME_PROFILE" && row.targetUsername === `player_${stamp}`,
+    ) &&
+      profileActivity.body.activity?.some(
+        (row: { action: string; targetUsername: string }) =>
+          row.action === "RESET_GAME_PROFILE" && row.targetUsername === `player_${stamp}`,
+      ),
+  );
+  const expectedGames: Record<string, [string, string, number, number]> = {
+    "lucky-dollar": ["EASY", "SLOTS", 1, 100],
+    "golden-fortune": ["MEDIUM", "SLOTS", 5, 500],
+    "dollar-rush": ["HARD", "REACTION", 10, 1000],
+    "scratch-mania": ["EASY", "SCRATCH", 2, 50],
+    "lucky-spin": ["EASY", "SPIN", 5, 100],
+    "coin-flip": ["MEDIUM", "CHOICE", 10, 200],
+    "treasure-box": ["MEDIUM", "CHOICE", 5, 150],
+    "cash-match": ["MEDIUM", "MATCH", 5, 150],
+    "diamond-drop": ["HARD", "MATCH", 10, 400],
+    "bonus-burst": ["MEDIUM", "BONUS", 10, 250],
+    "jackpot-wheel": ["HARD", "SPIN", 20, 500],
+  };
+  for (const game of games.body.games ?? []) {
+    const spec = expectedGames[game.slug];
+    if (!spec) continue;
+    check(
+      `${game.slug} config`,
+      game.difficulty === spec[0] &&
+        game.category === spec[1] &&
+        Number(game.minimumBet) === spec[2] &&
+        Number(game.maximumBet) === spec[3],
+    );
+  }
   const requestId = `verify-${stamp}`.slice(0, 80);
   const firstPlay = await send(base, "POST", "/api/games/lucky-dollar/spin", { betAmount: 10, requestId }, newToken);
   const replay = await send(base, "POST", "/api/games/lucky-dollar/spin", { betAmount: 10, requestId, winAmount: 99999 }, newToken);
@@ -225,7 +432,44 @@ async function main() {
     ledger.body.transactions?.some((row: { transactionType: string }) => row.transactionType === "GAME_BET"),
   );
 
-  await send(base, "POST", `/api/admin/users/${newId}/credits`, { amount: wallet.body.balance, action: "remove" }, adminToken);
+  const beforeRequest = await send(base, "GET", "/api/player/wallet", undefined, newToken);
+  const creditRequest = await send(base, "POST", "/api/player/credit-requests", { amount: 25 }, newToken);
+  const afterRequest = await send(base, "GET", "/api/player/wallet", undefined, newToken);
+  check(
+    "player credit request does not change balance",
+    creditRequest.status === 201 &&
+      creditRequest.body.request?.status === "PENDING" &&
+      afterRequest.body.balance === beforeRequest.body.balance,
+  );
+  const duplicateRequest = await send(base, "POST", "/api/player/credit-requests", { amount: 25 }, newToken);
+  check("one pending credit request", duplicateRequest.status === 409);
+  const ownRequests = await send(base, "GET", "/api/player/credit-requests", undefined, newToken);
+  check(
+    "player sees request status",
+    ownRequests.status === 200 && ownRequests.body.requests?.some((row: { status: string }) => row.status === "PENDING"),
+  );
+  const blockedReview = await send(
+    base,
+    "POST",
+    `/api/admin/credit-requests/${creditRequest.body.request?.id}/review`,
+    { action: "approve" },
+    newToken,
+  );
+  check("player cannot approve credits", blockedReview.status === 403);
+  const approved = await send(
+    base,
+    "POST",
+    `/api/admin/credit-requests/${creditRequest.body.request?.id}/review`,
+    { action: "approve" },
+    adminToken,
+  );
+  const funded = await send(base, "GET", "/api/player/wallet", undefined, newToken);
+  check(
+    "admin approval adds credits",
+    approved.status === 200 && Number(funded.body.balance) === Number(beforeRequest.body.balance) + 25,
+  );
+
+  await send(base, "POST", `/api/admin/users/${newId}/credits`, { amount: funded.body.balance, action: "remove" }, adminToken);
   const broke = await send(base, "POST", "/api/games/lucky-dollar/spin", { betAmount: 10 }, newToken);
   check("insufficient credits", broke.status === 400 && broke.body.error === "Insufficient credits");
   const stillBroke = await send(base, "GET", "/api/player/wallet", undefined, newToken);

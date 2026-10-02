@@ -30,6 +30,23 @@ export async function listPlayers(): Promise<PlayerSummary[]> {
   return result.rows.map(mapPlayer);
 }
 
+export async function findUserByEmail(email: string): Promise<PlayerSummary> {
+  const result = await pool.query(
+    `SELECT u.id, u.username, u.email, u.role, u.is_active, u.created_at,
+            p.display_name, p.level, p.experience, COALESCE(w.balance, 0) AS balance
+     FROM users u
+     LEFT JOIN player_profiles p ON p.user_id = u.id
+     LEFT JOIN wallets w ON w.user_id = u.id
+     WHERE LOWER(u.email) = LOWER($1)`,
+    [email],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new AppError(404, "No user found with that email.");
+  }
+  return mapPlayer(row);
+}
+
 export async function getUser(userId: string): Promise<PlayerSummary> {
   const result = await pool.query(
     `SELECT u.id, u.username, u.email, u.role, u.is_active, u.created_at,

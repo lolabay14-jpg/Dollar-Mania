@@ -1,9 +1,9 @@
 class_name UiTheme
 extends RefCounted
 
-const COL_BG := Color("0B1220")
-const COL_CARD := Color("162033")
-const COL_CARD_BORDER := Color("2C3C58")
+const COL_BG := Color("070B14")
+const COL_CARD := Color("121A2C")
+const COL_CARD_BORDER := Color("31425F")
 const COL_GOLD := Color("F5C542")
 const COL_GOLD_DARK := Color("C8962E")
 const COL_GOLD_SOFT := Color("FFE38A")
@@ -11,6 +11,8 @@ const COL_INK := Color("141008")
 const COL_TEXT := Color("F4F7FB")
 const COL_MUTED := Color("9AA6BD")
 const COL_GREEN := Color("3DDC97")
+const COL_BLUE := Color("7EB6FF")
+const COL_PURPLE := Color("8B7CFF")
 const COL_DANGER := Color("FF8A9A")
 const COL_DANGER_BG := Color("3A1E28")
 
@@ -37,17 +39,72 @@ static func style_muted(label: Label) -> void:
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 
+static func game_accent(slug: String) -> Color:
+	match slug:
+		"golden-fortune":
+			return COL_GOLD_SOFT
+		"dollar-rush":
+			return COL_GREEN
+		"scratch-mania":
+			return Color("D7C4A3")
+		"lucky-spin":
+			return Color("7DFFC3")
+		"coin-flip":
+			return COL_GOLD
+		"treasure-box":
+			return Color("E2B15C")
+		"cash-match":
+			return COL_BLUE
+		"diamond-drop":
+			return Color("8EE7FF")
+		"bonus-burst":
+			return Color("FFB45A")
+		"jackpot-wheel":
+			return Color("FFE38A")
+		_:
+			return COL_GOLD
+
+
+static func paint_glass(panel: PanelContainer, invalid := false) -> void:
+	var border := COL_DANGER if invalid else Color(COL_GOLD, 0.38)
+	var box := _flat(Color(0.06, 0.09, 0.16, 0.84), border, 22, 1, 18, 16)
+	box.shadow_color = Color(0, 0, 0, 0.38)
+	box.shadow_size = 18
+	box.shadow_offset = Vector2(0, 10)
+	panel.add_theme_stylebox_override("panel", box)
+
+
+static func paint_card(panel: PanelContainer, accent: Color, hot := false) -> void:
+	var border := accent if hot else Color(accent, 0.45)
+	var box := _flat(Color(0.07, 0.1, 0.17, 0.92), border, 18, 2 if hot else 1, 0, 0)
+	box.shadow_color = Color(accent, 0.32 if hot else 0.14)
+	box.shadow_size = 18 if hot else 8
+	box.shadow_offset = Vector2(0, 8)
+	panel.add_theme_stylebox_override("panel", box)
+
+
+static func mood(root: Node, mood_name: String, tint: Color = COL_GOLD) -> void:
+	var dust := root.get_node_or_null("Dust")
+	if dust and dust.has_method("set_mood"):
+		dust.set_mood(mood_name, tint)
+
+
 static func _build() -> Theme:
 	var built := Theme.new()
 	built.default_font_size = 17
 
-	var card := _flat(COL_CARD, COL_CARD_BORDER, 16, 1, 16, 14)
-	var button := _flat(Color("1B2740"), COL_CARD_BORDER, 12, 1, 14, 12)
-	var button_hover := _flat(Color("243352"), COL_GOLD_DARK, 12, 1, 14, 12)
-	var button_pressed := _flat(Color("121A2C"), COL_GOLD, 12, 1, 14, 12)
-	var primary := _flat(COL_GOLD, COL_GOLD, 12, 1, 14, 12)
-	var primary_hover := _flat(COL_GOLD_SOFT, COL_GOLD_SOFT, 12, 1, 14, 12)
-	var primary_pressed := _flat(COL_GOLD_DARK, COL_GOLD_DARK, 12, 1, 14, 12)
+	var card := _flat(COL_CARD, Color(COL_GOLD, 0.22), 18, 1, 16, 14)
+	card.shadow_color = Color(0, 0, 0, 0.32)
+	card.shadow_size = 12
+	card.shadow_offset = Vector2(0, 6)
+	var button := _flat(Color("1B2740"), COL_CARD_BORDER, 14, 1, 14, 12)
+	var button_hover := _flat(Color("243352"), COL_GOLD_DARK, 14, 1, 14, 12)
+	var button_pressed := _flat(Color("121A2C"), COL_GOLD, 14, 1, 14, 12)
+	var primary := _flat(COL_GOLD, COL_GOLD_SOFT, 14, 1, 14, 12)
+	primary.shadow_color = Color(COL_GOLD, 0.28)
+	primary.shadow_size = 10
+	var primary_hover := _flat(COL_GOLD_SOFT, COL_GOLD_SOFT, 14, 1, 14, 12)
+	var primary_pressed := _flat(COL_GOLD_DARK, COL_GOLD_DARK, 14, 1, 14, 12)
 	var danger := _flat(COL_DANGER_BG, Color("6E3140"), 12, 1, 14, 12)
 	var danger_hover := _flat(Color("4C2632"), COL_DANGER, 12, 1, 14, 12)
 	var selected := _flat(Color("2A2412"), COL_GOLD, 12, 2, 14, 12)
@@ -64,6 +121,13 @@ static func _build() -> Theme:
 	_set_button(built, "DangerButton", danger, danger_hover, danger, COL_DANGER, COL_TEXT)
 	built.set_type_variation("SelectedButton", "Button")
 	_set_button(built, "SelectedButton", selected, selected, selected, COL_GOLD, COL_GOLD)
+	var link := StyleBoxEmpty.new()
+	link.content_margin_left = 8
+	link.content_margin_right = 8
+	link.content_margin_top = 8
+	link.content_margin_bottom = 8
+	built.set_type_variation("TextLink", "Button")
+	_set_button(built, "TextLink", link, link, link, COL_GOLD_SOFT, COL_GOLD)
 
 	for style_name in ["normal", "hover", "pressed", "focus", "disabled"]:
 		built.set_stylebox(style_name, "CheckBox", empty)

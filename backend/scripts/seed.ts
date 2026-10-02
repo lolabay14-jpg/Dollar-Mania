@@ -8,6 +8,7 @@ const GAMES = [
     slug: "lucky-dollar",
     description: "Three reels and one payline.",
     difficulty: "EASY",
+    category: "SLOTS",
     minimumBet: 1,
     maximumBet: 100,
   },
@@ -16,6 +17,7 @@ const GAMES = [
     slug: "golden-fortune",
     description: "Five reels with larger line wins.",
     difficulty: "MEDIUM",
+    category: "SLOTS",
     minimumBet: 5,
     maximumBet: 500,
   },
@@ -24,6 +26,7 @@ const GAMES = [
     slug: "dollar-rush",
     description: "Pick a lane before the rush lands.",
     difficulty: "HARD",
+    category: "REACTION",
     minimumBet: 10,
     maximumBet: 1000,
   },
@@ -32,6 +35,7 @@ const GAMES = [
     slug: "scratch-mania",
     description: "Scratch a card and reveal the prize.",
     difficulty: "EASY",
+    category: "SCRATCH",
     minimumBet: 2,
     maximumBet: 50,
   },
@@ -40,6 +44,7 @@ const GAMES = [
     slug: "lucky-spin",
     description: "Spin a wheel of credit prizes.",
     difficulty: "EASY",
+    category: "SPIN",
     minimumBet: 5,
     maximumBet: 100,
   },
@@ -48,6 +53,7 @@ const GAMES = [
     slug: "coin-flip",
     description: "Call heads or tails.",
     difficulty: "MEDIUM",
+    category: "CHOICE",
     minimumBet: 10,
     maximumBet: 200,
   },
@@ -56,6 +62,7 @@ const GAMES = [
     slug: "treasure-box",
     description: "Open one of four mystery boxes.",
     difficulty: "MEDIUM",
+    category: "CHOICE",
     minimumBet: 5,
     maximumBet: 150,
   },
@@ -63,23 +70,26 @@ const GAMES = [
     name: "Cash Match",
     slug: "cash-match",
     description: "Reveal cards and match the symbols.",
-    difficulty: "EASY",
+    difficulty: "MEDIUM",
+    category: "MATCH",
     minimumBet: 5,
-    maximumBet: 100,
+    maximumBet: 150,
   },
   {
     name: "Diamond Drop",
     slug: "diamond-drop",
     description: "Falling gems that match in a row.",
-    difficulty: "MEDIUM",
+    difficulty: "HARD",
+    category: "MATCH",
     minimumBet: 10,
-    maximumBet: 200,
+    maximumBet: 400,
   },
   {
     name: "Bonus Burst",
     slug: "bonus-burst",
     description: "A short timed bonus round.",
-    difficulty: "HARD",
+    difficulty: "MEDIUM",
+    category: "BONUS",
     minimumBet: 10,
     maximumBet: 250,
   },
@@ -88,6 +98,7 @@ const GAMES = [
     slug: "jackpot-wheel",
     description: "A larger wheel with a rare jackpot.",
     difficulty: "HARD",
+    category: "SPIN",
     minimumBet: 20,
     maximumBet: 500,
   },
@@ -112,16 +123,17 @@ async function seed() {
 
   for (const game of GAMES) {
     await pool.query(
-      `INSERT INTO slot_games (name, slug, description, difficulty, minimum_bet, maximum_bet, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, true)
+      `INSERT INTO slot_games (name, slug, description, difficulty, category, minimum_bet, maximum_bet, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
        ON CONFLICT (slug) DO UPDATE SET
          name = EXCLUDED.name,
          description = EXCLUDED.description,
          difficulty = EXCLUDED.difficulty,
+         category = EXCLUDED.category,
          minimum_bet = EXCLUDED.minimum_bet,
          maximum_bet = EXCLUDED.maximum_bet,
          is_active = true`,
-      [game.name, game.slug, game.description, game.difficulty, game.minimumBet, game.maximumBet],
+      [game.name, game.slug, game.description, game.difficulty, game.category, game.minimumBet, game.maximumBet],
     );
   }
   console.log("Seed finished. Development accounts are ready.");

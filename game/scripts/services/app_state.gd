@@ -34,10 +34,16 @@ func go_start() -> void:
 
 
 func go_login() -> void:
+	var from_signup := false
+	var current := get_tree().current_scene
+	if current:
+		from_signup = str(current.scene_file_path).ends_with("signup_screen.tscn")
+	SceneTransition.slide = -1 if from_signup else 0
 	_change(SCENE_LOGIN)
 
 
 func go_signup() -> void:
+	SceneTransition.slide = 1
 	_change(SCENE_SIGNUP)
 
 
@@ -76,6 +82,7 @@ func _change(path: String) -> void:
 		await get_tree().process_frame
 	if SceneTransition:
 		await SceneTransition.reveal()
+		SceneTransition.slide = 0
 	_changing = false
 
 

@@ -6,6 +6,7 @@ extends Control
 func _ready() -> void:
 	UiTheme.apply(self)
 	$Background.color = UiTheme.COL_BG
+	UiTheme.mood(self, "calm")
 	UiTheme.style_title(%Title, 32)
 	UiTheme.style_muted(%Hint)
 	%BackButton.pressed.connect(AppState.go_main)
@@ -15,8 +16,8 @@ func _ready() -> void:
 	%MusicCheck.toggled.connect(func(on: bool) -> void: AppState.music_enabled = on)
 	resized.connect(_fit)
 	_fit()
-	UiMotion.fade_in(%Column)
 	UiMotion.bind_tree(self)
+	UiMotion.enter(%Column, 0)
 
 
 func _fit() -> void:

@@ -20,7 +20,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.043137, 0.070588, 0.12549, 1)
+color = Color(0.027, 0.043, 0.078, 1)
 
 [node name="Dust" type="Control" parent="."]
 layout_mode = 1
@@ -49,39 +49,55 @@ size_flags_horizontal = 3
 [node name="Content" type="VBoxContainer" parent="Scroll/Column"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 12
+theme_override_constants/separation = 14
 
 [node name="Title" type="Label" parent="Scroll/Column/Content"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Dollar Mania"
+text = "DOLLAR MANIA"
 horizontal_alignment = 1
 
-[node name="Username" type="LineEdit" parent="Scroll/Column/Content"]
+[node name="Welcome" type="Label" parent="Scroll/Column/Content"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Welcome back"
+horizontal_alignment = 1
+
+[node name="Card" type="PanelContainer" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
 layout_mode = 2
 
-[node name="Password" type="LineEdit" parent="Scroll/Column/Content"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
+[node name="CardBox" type="VBoxContainer" parent="Scroll/Column/Content/Card"]
 layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Username" type="LineEdit" parent="Scroll/Column/Content/Card/CardBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+placeholder_text = "Username"
+
+[node name="Password" type="LineEdit" parent="Scroll/Column/Content/Card/CardBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+placeholder_text = "Password"
 secret = true
 
-[node name="LoginButton" type="Button" parent="Scroll/Column/Content"]
+[node name="LoginButton" type="Button" parent="Scroll/Column/Content/Card/CardBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 54)
 layout_mode = 2
 text = "Login"
 
-[node name="SignupButton" type="Button" parent="Scroll/Column/Content"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-layout_mode = 2
-text = "Don't have an account? Sign Up"
-
-[node name="ErrorLabel" type="Label" parent="Scroll/Column/Content"]
+[node name="ErrorLabel" type="Label" parent="Scroll/Column/Content/Card/CardBox"]
 unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 3
 horizontal_alignment = 1
+
+[node name="SignupButton" type="Button" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Don't have an account? Sign Up"

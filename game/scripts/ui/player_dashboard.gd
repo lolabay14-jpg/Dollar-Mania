@@ -6,12 +6,21 @@ extends Control
 func _ready() -> void:
 	UiTheme.apply(self)
 	$Background.color = UiTheme.COL_BG
+	UiTheme.mood(self, "lobby")
 	UiTheme.style_title(%Title, 32)
+	%Title.text = "Dollar Mania"
+	var profile := $Scroll/Column/Content/ProfileCard as PanelContainer
+	UiTheme.paint_glass(profile)
 	UiTheme.style_muted(%Tag)
 	UiTheme.style_muted(%LevelCaption)
 	%NameLabel.add_theme_font_size_override("font_size", 26)
 	%CreditsLabel.add_theme_font_size_override("font_size", 34)
 	%CreditsLabel.add_theme_color_override("font_color", UiTheme.COL_GOLD)
+	var request_status := Label.new()
+	request_status.name = "RequestStatus"
+	request_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiTheme.style_muted(request_status)
+	%CreditsLabel.get_parent().add_child(request_status)
 	%BackButton.text = "Log out"
 	%BackButton.pressed.connect(_logout)
 	%PlayButton.text = "Games"
@@ -21,8 +30,8 @@ func _ready() -> void:
 	_style_bar()
 	_fit()
 	_load()
-	UiMotion.fade_in(%Column)
 	UiMotion.bind_tree(self)
+	UiMotion.enter(%Column, 0)
 
 
 func _logout() -> void:
@@ -65,7 +74,14 @@ func _load() -> void:
 	%AvatarLabel.text = _initials(player_name)
 	%NameLabel.text = player_name
 	%Tag.text = str(profile.get("username", "Player"))
-	%CreditsLabel.text = "%d" % balance
+	%CreditsLabel.text = "💰 %d Credits" % balance
+	var requests_response: Dictionary = await ApiClient.my_credit_requests()
+	if is_inside_tree() and requests_response.ok:
+		var requests: Array = requests_response.data.get("requests", [])
+		var status_label := %CreditsLabel.get_parent().get_node_or_null("RequestStatus") as Label
+		if status_label and not requests.is_empty() and requests[0] is Dictionary:
+			var latest: Dictionary = requests[0]
+			status_label.text = "Credit request: %s  ·  %s" % [str(latest.get("status", "")), str(int(latest.get("amount", 0)))]
 	%SpinsLabel.text = "Total spins\n%d" % int(profile.get("spins", 0))
 	%WinsLabel.text = "Total wins\n%d" % int(profile.get("wins", 0))
 	%LossesLabel.text = "Total losses\n%d" % int(profile.get("losses", 0))

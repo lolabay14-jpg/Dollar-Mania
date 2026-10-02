@@ -5,11 +5,17 @@ extends Node
 
 var _token := ""
 var _user: Dictionary = {}
+signal _refresh_games_requested
+
+var games_cache: Array = []
+var balance_cache := -1.0
+var _refreshing := false
 
 const _SESSION_PATH := "user://session.cfg"
 
 
 func _ready() -> void:
+	_refresh_games_requested.connect(_refresh_games)
 	_load_session()
 
 
@@ -28,6 +34,9 @@ func username() -> String:
 func logout() -> void:
 	_token = ""
 	_user = {}
+	games_cache = []
+	balance_cache = -1.0
+	_refreshing = false
 	_clear_session()
 
 
@@ -68,7 +77,10 @@ func get_player_profile() -> Dictionary:
 
 
 func get_wallet() -> Dictionary:
-	return await _request(HTTPClient.METHOD_GET, "/api/player/wallet")
+	var response := await _request(HTTPClient.METHOD_GET, "/api/player/wallet")
+	if response.ok:
+		balance_cache = float(response.data.get("balance", balance_cache))
+	return response
 
 
 func get_transactions() -> Dictionary:
@@ -80,7 +92,42 @@ func get_spin_history() -> Dictionary:
 
 
 func get_slot_games() -> Dictionary:
-	return await _request(HTTPClient.METHOD_GET, "/api/player/games")
+	if not games_cache.is_empty():
+		if not _refreshing:
+			_refreshing = true
+			_refresh_games_requested.emit()
+		return {"ok": true, "status": 200, "data": {"games": games_cache}, "error": ""}
+	return await _refresh_games()
+
+
+func _refresh_games() -> Dictionary:
+	var response := await _request(HTTPClient.METHOD_GET, "/api/player/games")
+	_refreshing = false
+	if response.ok:
+		var games = response.data.get("games", [])
+		if games is Array:
+			games_cache = games
+	return response
+
+
+func request_credits(amount: int) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/api/player/credit-requests", {"amount": amount})
+
+
+func my_credit_requests() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/player/credit-requests")
+
+
+func admin_credit_requests() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/credit-requests")
+
+
+func admin_review_request(request_id: String, action: String) -> Dictionary:
+	return await _request(
+		HTTPClient.METHOD_POST,
+		"/api/admin/credit-requests/%s/review" % request_id.uri_encode(),
+		{"action": action}
+	)
 
 
 func spin(game_id: String, bet_amount: int, choice: Variant = null, request_id := "") -> Dictionary:
@@ -100,12 +147,32 @@ func admin_users() -> Dictionary:
 	return await _request(HTTPClient.METHOD_GET, "/api/admin/users")
 
 
+func admin_search_user(email: String) -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/users/search?email=%s" % email.strip_edges().uri_encode())
+
+
+func admin_find_player(email: String) -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/users/player?email=%s" % email.strip_edges().uri_encode())
+
+
 func admin_transactions() -> Dictionary:
 	return await _request(HTTPClient.METHOD_GET, "/api/admin/transactions")
 
 
 func admin_activity() -> Dictionary:
 	return await _request(HTTPClient.METHOD_GET, "/api/admin/activity")
+
+
+func admin_game_profiles(user_id: String) -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/users/%s/game-profiles" % user_id.uri_encode())
+
+
+func admin_set_game_profile(user_id: String, game_id: String, profile: String, parameters: Dictionary) -> Dictionary:
+	return await _request(
+		HTTPClient.METHOD_PUT,
+		"/api/admin/users/%s/game-profiles/%s" % [user_id.uri_encode(), game_id.uri_encode()],
+		{"profile": profile, "parameters": parameters}
+	)
 
 
 func admin_adjust_credits(user_id: String, amount: int, action: String) -> Dictionary:
@@ -142,6 +209,8 @@ func _request(method: int, path: String, body: Variant = null, authenticated := 
 	var parsed: Variant = JSON.parse_string(PackedByteArray(completed[3]).get_string_from_utf8())
 	var data: Dictionary = parsed if parsed is Dictionary else {}
 	if code >= 200 and code < 300:
+		if data.has("balance"):
+			balance_cache = float(data.get("balance", balance_cache))
 		return {"ok": true, "status": code, "data": data, "error": ""}
 	return _fail(code, str(data.get("error", "Request failed.")))
 
