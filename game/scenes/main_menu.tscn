@@ -1,0 +1,134 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://game/scripts/ui/main_menu.gd" id="1_menu"]
+[ext_resource type="Script" path="res://game/scripts/ui/backdrop.gd" id="2_backdrop"]
+[ext_resource type="PackedScene" path="res://game/scenes/promo_banner.tscn" id="3_banner"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.043137, 0.070588, 0.12549, 1)
+
+[node name="Dust" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("2_backdrop")
+
+[node name="Scroll" type="ScrollContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 0
+
+[node name="Column" type="MarginContainer" parent="Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Content" type="VBoxContainer" parent="Scroll/Column"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="Profile" type="HBoxContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="Avatar" type="PanelContainer" parent="Scroll/Column/Content/Profile"]
+custom_minimum_size = Vector2(52, 52)
+layout_mode = 2
+
+[node name="AvatarLabel" type="Label" parent="Scroll/Column/Content/Profile/Avatar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "AR"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ProfileText" type="VBoxContainer" parent="Scroll/Column/Content/Profile"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PlayerName" type="Label" parent="Scroll/Column/Content/Profile/ProfileText"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Player"
+
+[node name="CreditsLabel" type="Label" parent="Scroll/Column/Content/Profile/ProfileText"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "500 credits"
+
+[node name="Title" type="Label" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Dollar Mania"
+horizontal_alignment = 1
+
+[node name="Tagline" type="Label" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Spin. Play. Win."
+horizontal_alignment = 1
+
+[node name="Banner" parent="Scroll/Column/Content" instance=ExtResource("3_banner")]
+layout_mode = 2
+kicker = "Featured"
+headline = "Lucky Dollar"
+subline = "Classic 3-reel play with virtual credits."
+
+[node name="PlayButton" type="Button" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+text = "Play"
+
+[node name="SlotsButton" type="Button" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Games"
+
+[node name="RoleRow" type="HBoxContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="PlayerButton" type="Button" parent="Scroll/Column/Content/RoleRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Player"
+
+[node name="AdminButton" type="Button" parent="Scroll/Column/Content/RoleRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Admin"
+
+[node name="SettingsButton" type="Button" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Settings"

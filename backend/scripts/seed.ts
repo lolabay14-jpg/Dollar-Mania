@@ -1,0 +1,178 @@
+import { config } from "../src/config";
+import { pool } from "../src/db";
+import { hashPassword } from "../src/services/authService";
+
+const GAMES = [
+  {
+    name: "Lucky Dollar",
+    slug: "lucky-dollar",
+    description: "Three reels and one payline.",
+    difficulty: "EASY",
+    minimumBet: 1,
+    maximumBet: 100,
+  },
+  {
+    name: "Golden Fortune",
+    slug: "golden-fortune",
+    description: "Five reels with larger line wins.",
+    difficulty: "MEDIUM",
+    minimumBet: 5,
+    maximumBet: 500,
+  },
+  {
+    name: "Dollar Rush",
+    slug: "dollar-rush",
+    description: "Pick a lane before the rush lands.",
+    difficulty: "HARD",
+    minimumBet: 10,
+    maximumBet: 1000,
+  },
+  {
+    name: "Scratch Mania",
+    slug: "scratch-mania",
+    description: "Scratch a card and reveal the prize.",
+    difficulty: "EASY",
+    minimumBet: 2,
+    maximumBet: 50,
+  },
+  {
+    name: "Lucky Spin",
+    slug: "lucky-spin",
+    description: "Spin a wheel of credit prizes.",
+    difficulty: "EASY",
+    minimumBet: 5,
+    maximumBet: 100,
+  },
+  {
+    name: "Coin Flip",
+    slug: "coin-flip",
+    description: "Call heads or tails.",
+    difficulty: "MEDIUM",
+    minimumBet: 10,
+    maximumBet: 200,
+  },
+  {
+    name: "Treasure Box",
+    slug: "treasure-box",
+    description: "Open one of four mystery boxes.",
+    difficulty: "MEDIUM",
+    minimumBet: 5,
+    maximumBet: 150,
+  },
+  {
+    name: "Cash Match",
+    slug: "cash-match",
+    description: "Reveal cards and match the symbols.",
+    difficulty: "EASY",
+    minimumBet: 5,
+    maximumBet: 100,
+  },
+  {
+    name: "Diamond Drop",
+    slug: "diamond-drop",
+    description: "Falling gems that match in a row.",
+    difficulty: "MEDIUM",
+    minimumBet: 10,
+    maximumBet: 200,
+  },
+  {
+    name: "Bonus Burst",
+    slug: "bonus-burst",
+    description: "A short timed bonus round.",
+    difficulty: "HARD",
+    minimumBet: 10,
+    maximumBet: 250,
+  },
+  {
+    name: "Jackpot Wheel",
+    slug: "jackpot-wheel",
+    description: "A larger wheel with a rare jackpot.",
+    difficulty: "HARD",
+    minimumBet: 20,
+    maximumBet: 500,
+  },
+];
+
+async function seed() {
+  const adminHash = await hashPassword(config.DEFAULT_ADMIN_PASSWORD);
+  await pool.query(
+    `INSERT INTO users (username, email, password_hash, role)
+     VALUES ($1, $2, $3, 'ADMIN')
+     ON CONFLICT (username) DO NOTHING`,
+    [config.DEFAULT_ADMIN_USERNAME, `${config.DEFAULT_ADMIN_USERNAME}@dollarmania.local`, adminHash],
+  );
+
+  await seedPlayer(config.DEFAULT_PLAYER_USERNAME, "Alex Rivera", config.DEFAULT_PLAYER_PASSWORD, config.STARTING_CREDITS);
+  await seedPlayer(
+    config.DEFAULT_PLAYER2_USERNAME,
+    "Jordan Lee",
+    config.DEFAULT_PLAYER2_PASSWORD,
+    config.STARTING_CREDITS,
+  );
+
+  for (const game of GAMES) {
+    await pool.query(
+      `INSERT INTO slot_games (name, slug, description, difficulty, minimum_bet, maximum_bet, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, true)
+       ON CONFLICT (slug) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         difficulty = EXCLUDED.difficulty,
+         minimum_bet = EXCLUDED.minimum_bet,
+         maximum_bet = EXCLUDED.maximum_bet,
+         is_active = true`,
+      [game.name, game.slug, game.description, game.difficulty, game.minimumBet, game.maximumBet],
+    );
+  }
+  console.log("Seed finished. Development accounts are ready.");
+}
+
+async function seedPlayer(username: string, displayName: string, password: string, credits: number) {
+  const existing = await pool.query<{ id: string }>("SELECT id FROM users WHERE username = $1", [username]);
+  if (existing.rowCount) {
+    return;
+  }
+  const passwordHash = await hashPassword(password);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const user = await client.query<{ id: string }>(
+      `INSERT INTO users (username, email, password_hash, role)
+       VALUES ($1, $2, $3, 'PLAYER')
+       RETURNING id`,
+      [username, `${username}@dollarmania.local`, passwordHash],
+    );
+    const userId = user.rows[0].id;
+    await client.query(
+      `INSERT INTO player_profiles (user_id, display_name, level, experience)
+       VALUES ($1, $2, 1, 0)`,
+      [userId, displayName],
+    );
+    await client.query("INSERT INTO wallets (user_id, balance) VALUES ($1, $2)", [userId, credits]);
+    if (credits > 0) {
+      await client.query(
+        `INSERT INTO credit_transactions
+           (user_id, amount, balance_after, transaction_type, description)
+         VALUES ($1, $2, $2, 'BONUS', 'Starting balance')`,
+        [userId, credits],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+seed()
+  .then(async () => {
+    await pool.end();
+  })
+  .catch(async (error: unknown) => {
+    const message = error instanceof Error ? error.message : "Seed failed.";
+    console.error(message.replace(/postgres(?:ql)?:\/\/\S+/gi, "[redacted]"));
+    await pool.end();
+    process.exit(1);
+  });

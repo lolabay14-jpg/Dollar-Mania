@@ -1,0 +1,163 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://game/scripts/ui/player_dashboard.gd" id="1_player"]
+[ext_resource type="Script" path="res://game/scripts/ui/backdrop.gd" id="2_backdrop"]
+
+[node name="PlayerDashboard" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_player")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.043137, 0.070588, 0.12549, 1)
+
+[node name="Dust" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("2_backdrop")
+
+[node name="Scroll" type="ScrollContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 0
+
+[node name="Column" type="MarginContainer" parent="Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Content" type="VBoxContainer" parent="Scroll/Column"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="Header" type="HBoxContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Scroll/Column/Content/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Player"
+
+[node name="BackButton" type="Button" parent="Scroll/Column/Content/Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 48)
+layout_mode = 2
+text = "Back"
+
+[node name="ProfileCard" type="PanelContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="ProfileRow" type="HBoxContainer" parent="Scroll/Column/Content/ProfileCard"]
+layout_mode = 2
+
+[node name="Avatar" type="PanelContainer" parent="Scroll/Column/Content/ProfileCard/ProfileRow"]
+custom_minimum_size = Vector2(64, 64)
+layout_mode = 2
+
+[node name="AvatarLabel" type="Label" parent="Scroll/Column/Content/ProfileCard/ProfileRow/Avatar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "AR"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Identity" type="VBoxContainer" parent="Scroll/Column/Content/ProfileCard/ProfileRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="NameLabel" type="Label" parent="Scroll/Column/Content/ProfileCard/ProfileRow/Identity"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Player"
+
+[node name="Tag" type="Label" parent="Scroll/Column/Content/ProfileCard/ProfileRow/Identity"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Collector"
+
+[node name="BalanceCard" type="PanelContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="BalanceBox" type="VBoxContainer" parent="Scroll/Column/Content/BalanceCard"]
+layout_mode = 2
+
+[node name="CreditsCaption" type="Label" parent="Scroll/Column/Content/BalanceCard/BalanceBox"]
+layout_mode = 2
+text = "Current credits"
+
+[node name="CreditsLabel" type="Label" parent="Scroll/Column/Content/BalanceCard/BalanceBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "500"
+
+[node name="PlayButton" type="Button" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+text = "Slot Games"
+
+[node name="Stats" type="HBoxContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="SpinsLabel" type="Label" parent="Scroll/Column/Content/Stats"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Total spins\n0"
+
+[node name="WinsLabel" type="Label" parent="Scroll/Column/Content/Stats"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Total wins\n0"
+horizontal_alignment = 1
+
+[node name="LossesLabel" type="Label" parent="Scroll/Column/Content/Stats"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Total losses\n0"
+horizontal_alignment = 2
+
+[node name="LevelCaption" type="Label" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Level 1"
+
+[node name="LevelBar" type="ProgressBar" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 14)
+layout_mode = 2
+max_value = 1.0
+show_percentage = false
+
+[node name="HistoryTitle" type="Label" parent="Scroll/Column/Content"]
+layout_mode = 2
+text = "Recent spins"
+
+[node name="HistoryBox" type="VBoxContainer" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 6

@@ -1,0 +1,81 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://game/scripts/ui/slot_games_screen.gd" id="1_slots"]
+[ext_resource type="Script" path="res://game/scripts/ui/backdrop.gd" id="2_backdrop"]
+
+[node name="SlotGames" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_slots")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.043137, 0.070588, 0.12549, 1)
+
+[node name="Dust" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("2_backdrop")
+
+[node name="Scroll" type="ScrollContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 0
+
+[node name="Column" type="MarginContainer" parent="Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Content" type="VBoxContainer" parent="Scroll/Column"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="Header" type="HBoxContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Scroll/Column/Content/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Games"
+
+[node name="BackButton" type="Button" parent="Scroll/Column/Content/Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 48)
+layout_mode = 2
+text = "Back"
+
+[node name="Subtitle" type="Label" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+text = "Virtual credits only. Every active game is open."
+
+[node name="GameList" type="GridContainer" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/h_separation = 14
+theme_override_constants/v_separation = 14
+columns = 3

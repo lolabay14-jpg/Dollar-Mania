@@ -1,3 +1,8 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Backend secrets and build output
+backend/.env
+backend/node_modules/
+backend/dist/

@@ -1,0 +1,139 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://game/scripts/ui/admin_dashboard.gd" id="1_admin"]
+
+[node name="AdminDashboard" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_admin")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.043137, 0.070588, 0.12549, 1)
+
+[node name="Scroll" type="ScrollContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 0
+follow_focus = true
+
+[node name="Column" type="MarginContainer" parent="Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 18
+
+[node name="Content" type="VBoxContainer" parent="Scroll/Column"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="Header" type="HBoxContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="ScreenTitle" type="Label" parent="Scroll/Column/Content/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Admin"
+
+[node name="LogoutButton" type="Button" parent="Scroll/Column/Content/Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(108, 48)
+layout_mode = 2
+text = "Log out"
+
+[node name="ProfileCard" type="PanelContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="ProfileBox" type="VBoxContainer" parent="Scroll/Column/Content/ProfileCard"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="AdminName" type="Label" parent="Scroll/Column/Content/ProfileCard/ProfileBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Admin"
+
+[node name="AdminMeta" type="Label" parent="Scroll/Column/Content/ProfileCard/ProfileBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Platform Admin"
+
+[node name="StatsLabel" type="Label" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+text = "Players"
+
+[node name="PlayersTitle" type="Label" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Players"
+
+[node name="PlayerList" type="VBoxContainer" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SelectionLabel" type="Label" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+text = "Select a player."
+
+[node name="AmountInput" type="LineEdit" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Credit amount"
+
+[node name="ActionRow" type="HBoxContainer" parent="Scroll/Column/Content"]
+layout_mode = 2
+
+[node name="AddButton" type="Button" parent="Scroll/Column/Content/ActionRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Add Credits"
+
+[node name="RemoveButton" type="Button" parent="Scroll/Column/Content/ActionRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Remove Credits"
+
+[node name="FeedbackLabel" type="Label" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="ActivityTitle" type="Label" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Recent credit activity"
+
+[node name="ActivityList" type="VBoxContainer" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 6
