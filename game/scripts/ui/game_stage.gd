@@ -27,6 +27,15 @@ var _bet := 1
 var _choice: Variant = null
 var _busy := false
 
+var _shell: VBoxContainer
+var _board_panel: PanelContainer
+var _board_inset: MarginContainer
+var _controls: VBoxContainer
+var _play_row: HBoxContainer
+var _dock: PanelContainer
+var _layout := "stack"
+var _card_grid: GridContainer
+var _choice_grid: GridContainer
 var _title: Label
 var _credits: Label
 var _meta: Label
@@ -65,7 +74,13 @@ func _fit() -> void:
 		_back.text = "Back to Games" if view.x >= 640.0 else "Games"
 	if _title:
 		_title.add_theme_font_size_override("font_size", 24 if view.x < 520.0 else 30)
+	_apply_layout()
+	if _board_inset:
+		var pad := 10 if view.x < 520.0 else 16
+		for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+			_board_inset.add_theme_constant_override(side, pad)
 	_layout_board()
+	_place_dock()
 
 
 func _load_game() -> void:
@@ -128,9 +143,10 @@ func _apply_game(game: Dictionary) -> void:
 
 func _build_shell() -> void:
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 14)
+	box.add_theme_constant_override("separation", 12)
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_column.add_child(box)
+	_shell = box
 
 	var header := HBoxContainer.new()
 	header.add_theme_constant_override("separation", 12)
@@ -145,6 +161,7 @@ func _build_shell() -> void:
 	_title = Label.new()
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	UiTheme.style_title(_title, 30)
 	header.add_child(_title)
 
@@ -159,7 +176,7 @@ func _build_shell() -> void:
 	var credit_box := VBoxContainer.new()
 	header.remove_child(_credits)
 	credit_box.add_child(_credits)
-	_delta.add_theme_font_size_override("font_size", 14)
+	_delta.add_theme_font_size_override("font_size", 16)
 	_delta.add_theme_color_override("font_color", UiTheme.COL_GREEN)
 	credit_box.add_child(_delta)
 	var credit_row := HBoxContainer.new()
@@ -174,8 +191,11 @@ func _build_shell() -> void:
 
 	var panel := PanelContainer.new()
 	UiTheme.paint_glass(panel)
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(panel)
+	_board_panel = panel
 	var inset := MarginContainer.new()
+	_board_inset = inset
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
 		inset.add_theme_constant_override(side, 16)
 	panel.add_child(inset)
@@ -184,66 +204,73 @@ func _build_shell() -> void:
 	_board.alignment = BoxContainer.ALIGNMENT_CENTER
 	inset.add_child(_board)
 
+	_controls = VBoxContainer.new()
+	_controls.add_theme_constant_override("separation", 8)
+	_controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(_controls)
 	var bets := HBoxContainer.new()
 	bets.alignment = BoxContainer.ALIGNMENT_CENTER
-	bets.add_theme_constant_override("separation", 10)
-	box.add_child(bets)
+	bets.add_theme_constant_override("separation", 8)
+	_controls.add_child(bets)
 	var minus := Button.new()
 	minus.text = "−"
-	minus.custom_minimum_size = Vector2(52, 48)
+	minus.custom_minimum_size = Vector2(56, 52)
 	minus.pressed.connect(_change_bet.bind(-1))
 	bets.add_child(minus)
 	_bet_label = Label.new()
-	_bet_label.custom_minimum_size = Vector2(180, 0)
+	_bet_label.custom_minimum_size = Vector2(96, 52)
+	_bet_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_bet_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_bet_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_bet_label.add_theme_font_size_override("font_size", 20)
 	bets.add_child(_bet_label)
 	var plus := Button.new()
 	plus.text = "+"
-	plus.custom_minimum_size = Vector2(52, 48)
+	plus.custom_minimum_size = Vector2(56, 52)
 	plus.pressed.connect(_change_bet.bind(1))
 	bets.add_child(plus)
-	var quick := Button.new()
-	quick.text = "Quick"
-	quick.custom_minimum_size = Vector2(72, 48)
-	quick.toggle_mode = true
-	quick.toggled.connect(func(on: bool) -> void: _quick = on)
-	bets.add_child(quick)
 	var chips := HBoxContainer.new()
 	chips.alignment = BoxContainer.ALIGNMENT_CENTER
 	chips.add_theme_constant_override("separation", 8)
-	box.add_child(chips)
+	_controls.add_child(chips)
 	for label in ["Min", "Mid", "Max"]:
 		var chip := Button.new()
 		chip.text = label
-		chip.custom_minimum_size = Vector2(72, 40)
+		chip.custom_minimum_size = Vector2(0, 48)
+		chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		chip.pressed.connect(_quick_bet.bind(label))
 		chips.add_child(chip)
+	var quick := Button.new()
+	quick.text = "Quick"
+	quick.toggle_mode = true
+	quick.custom_minimum_size = Vector2(0, 48)
+	quick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	quick.toggled.connect(func(on: bool) -> void: _quick = on)
+	chips.add_child(quick)
 	_limits = Label.new()
 	_limits.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_limits.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	UiTheme.style_muted(_limits)
-	box.add_child(_limits)
+	_controls.add_child(_limits)
 
 	_play = Button.new()
 	_play.theme_type_variation = "PrimaryButton"
-	_play.custom_minimum_size = Vector2(0, 52)
+	_play.custom_minimum_size = Vector2(0, 56)
 	_play.pressed.connect(_on_play)
-	box.add_child(_play)
+	_controls.add_child(_play)
 
 	_status = Label.new()
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	UiTheme.style_muted(_status)
-	box.add_child(_status)
+	_controls.add_child(_status)
 
 	_result = Label.new()
 	_result.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_result.add_theme_font_size_override("font_size", 32)
 	_result.add_theme_color_override("font_color", UiTheme.COL_GOLD)
-	box.add_child(_result)
+	_controls.add_child(_result)
 	_build_overlays()
 	UiMotion.bind_tree(box)
 
@@ -272,6 +299,8 @@ func _build_board() -> void:
 	_coin_disc = null
 	_burst_fill = null
 	_scratch_buttons.clear()
+	_card_grid = null
+	_choice_grid = null
 	_scratch_mode = false
 	_scratch_done = false
 	_choice = null
@@ -326,12 +355,13 @@ func _build_choices(labels: Array, values: Array) -> void:
 	grid.columns = 2 if labels.size() > 3 else labels.size()
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
+	_choice_grid = grid
 	_board.add_child(grid)
 	for index in labels.size():
 		var button := Button.new()
 		button.text = str(labels[index])
 		button.add_theme_font_size_override("font_size", 22)
-		button.custom_minimum_size = Vector2(0, 84)
+		button.custom_minimum_size = Vector2(0, 88)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.pressed.connect(_select_choice.bind(values[index]))
 		grid.add_child(button)
@@ -345,13 +375,14 @@ func _build_cards(count: int, hidden: String, scratch := false) -> void:
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 10)
+	_card_grid = grid
 	_board.add_child(grid)
 	for index in count:
 		if scratch:
 			var button := Button.new()
 			button.text = hidden
 			button.add_theme_font_size_override("font_size", 32)
-			button.custom_minimum_size = Vector2(0, 96)
+			button.custom_minimum_size = Vector2(0, 112)
 			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			button.disabled = true
 			button.pressed.connect(_scratch_at.bind(index))
@@ -359,7 +390,7 @@ func _build_cards(count: int, hidden: String, scratch := false) -> void:
 			_scratch_buttons.append(button)
 		else:
 			var panel := PanelContainer.new()
-			panel.custom_minimum_size = Vector2(0, 96)
+			panel.custom_minimum_size = Vector2(0, 104)
 			panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			UiTheme.paint_card(panel, UiTheme.game_accent(_slug))
 			var label := Label.new()
@@ -976,6 +1007,14 @@ func _has_int(values: Array, wanted: int) -> bool:
 
 
 func _layout_board() -> void:
+	if _choice_grid and is_instance_valid(_choice_grid):
+		var count := _choice_grid.get_child_count()
+		if size.x < 520.0:
+			_choice_grid.columns = 1 if count <= 3 else 2
+		else:
+			_choice_grid.columns = 2 if count > 3 else maxi(count, 1)
+	if _card_grid and is_instance_valid(_card_grid):
+		_card_grid.columns = 2 if size.x < 520.0 else 3
 	if not _reels.is_empty():
 		var face := _reel_face(_reels.size())
 		for reel in _reels:
@@ -986,20 +1025,112 @@ func _layout_board() -> void:
 		_wheel.custom_minimum_size = Vector2(diameter, diameter)
 
 
+func _apply_layout() -> void:
+	if _shell == null or _board_panel == null or _controls == null:
+		return
+	var mode := "stack"
+	if size.y > size.x and size.x < 560.0 and size.x > 8.0:
+		mode = "dock"
+	elif size.x > size.y + 60.0 and size.y < 620.0 and size.x >= 700.0:
+		mode = "split"
+	if mode == _layout:
+		return
+	_return_controls()
+	_layout = mode
+	if mode == "dock":
+		_dock = PanelContainer.new()
+		_dock.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+		_dock.mouse_filter = Control.MOUSE_FILTER_STOP
+		var bar := StyleBoxFlat.new()
+		bar.bg_color = Color(0.03, 0.05, 0.09, 0.96)
+		bar.border_color = Color(UiTheme.COL_GOLD, 0.28)
+		bar.set_border_width_all(1)
+		bar.content_margin_left = 12
+		bar.content_margin_right = 12
+		bar.content_margin_top = 10
+		bar.content_margin_bottom = 12
+		_dock.add_theme_stylebox_override("panel", bar)
+		add_child(_dock)
+		_controls.reparent(_dock)
+	elif mode == "split":
+		_play_row = HBoxContainer.new()
+		_play_row.add_theme_constant_override("separation", 14)
+		_play_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var at := _board_panel.get_index()
+		_shell.add_child(_play_row)
+		_shell.move_child(_play_row, at)
+		_board_panel.reparent(_play_row)
+		_controls.reparent(_play_row)
+		_board_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_board_panel.size_flags_stretch_ratio = 1.35
+		_controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_controls.size_flags_stretch_ratio = 0.9
+		_controls.custom_minimum_size.x = 210
+
+
+func _return_controls() -> void:
+	if _controls.get_parent() != _shell:
+		var at := _meta.get_index() + 1
+		if _play_row and is_instance_valid(_play_row) and _play_row.get_parent() == _shell:
+			at = _play_row.get_index()
+		if _board_panel.get_parent() != _shell:
+			_board_panel.reparent(_shell)
+		_shell.move_child(_board_panel, mini(at, _shell.get_child_count() - 1))
+		_controls.reparent(_shell)
+		_shell.move_child(_controls, mini(_board_panel.get_index() + 1, _shell.get_child_count() - 1))
+	_controls.custom_minimum_size.x = 0
+	_board_panel.size_flags_stretch_ratio = 1.0
+	if _play_row and is_instance_valid(_play_row):
+		_play_row.queue_free()
+	_play_row = null
+	if _dock and is_instance_valid(_dock):
+		_dock.queue_free()
+	_dock = null
+	var scroll := get_node_or_null("Scroll") as Control
+	if scroll:
+		scroll.offset_bottom = 0
+		scroll.offset_left = 0
+		scroll.offset_right = 0
+		scroll.offset_top = 0
+
+
+func _place_dock() -> void:
+	var scroll := get_node_or_null("Scroll") as Control
+	if _layout != "dock" or _dock == null or scroll == null:
+		return
+	var inset := ScreenLayout.safe_insets()
+	var height := _controls.get_combined_minimum_size().y + 24.0 + inset.w
+	_dock.offset_bottom = -inset.w
+	_dock.offset_top = -height
+	_dock.offset_left = inset.x
+	_dock.offset_right = -inset.z
+	scroll.offset_bottom = -height
+	scroll.offset_left = 0
+	scroll.offset_right = 0
+	scroll.offset_top = 0
+
+
 func _reel_face(count: int) -> Vector2:
-	var width := minf(size.x, 760.0) - 72.0
-	if width < 180.0:
-		width = 300.0
+	var usable := minf(size.x, 760.0)
+	if _layout == "split":
+		usable = minf(size.x * 0.56, 520.0)
+	usable -= 48.0
+	if usable < 160.0:
+		usable = maxf(size.x - 28.0, 160.0)
 	var gap := 8.0 * float(maxi(count - 1, 0))
-	var minimum := 50.0 if count >= 5 else 72.0
-	var face_w := clampf((width - gap) / float(maxi(count, 1)), minimum, 112.0)
-	return Vector2(face_w, clampf(face_w * 0.96, minimum, 108.0))
+	var minimum := 48.0 if count >= 5 else 72.0
+	var face_w := clampf((usable - gap) / float(maxi(count, 1)), minimum, 120.0)
+	return Vector2(face_w, clampf(face_w * 0.96, minimum, 116.0))
 
 
 func _wheel_diameter() -> float:
-	var view := minf(size.x, size.y)
-	var cap := 360.0 if _slug == "jackpot-wheel" else 280.0
-	return clampf(view - 88.0, 210.0, cap)
+	var cap := 360.0 if _slug == "jackpot-wheel" else 300.0
+	var room := minf(size.x, size.y) - 36.0
+	if _layout == "split":
+		room = minf(size.x * 0.5, size.y - 28.0)
+	elif _layout == "dock":
+		room = size.x - 36.0
+	return clampf(room, 180.0, cap)
 
 
 func _mark(symbol: String) -> String:

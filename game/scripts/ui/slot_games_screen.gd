@@ -21,7 +21,7 @@ var _opening := false
 var _games: Array = []
 var _filter := "ALL"
 var _filters: HFlowContainer
-var _quick: HBoxContainer
+var _quick: HFlowContainer
 
 
 func _ready() -> void:
@@ -41,18 +41,20 @@ func _fit() -> void:
 	var view := size
 	if view.x < 8.0:
 		return
-	var width := minf(view.x - 28.0, 1180.0)
-	var side := maxf((view.x - width) * 0.5, 14.0)
-	_column.add_theme_constant_override("margin_left", int(side))
-	_column.add_theme_constant_override("margin_right", int(side))
-	_column.add_theme_constant_override("margin_top", 20)
-	_column.add_theme_constant_override("margin_bottom", 28)
+	var edges := ScreenLayout.edge_margins(view)
+	var inner := maxf(view.x - edges.x - edges.z, 240.0)
+	var width := minf(inner, 1180.0)
+	var extra := maxf(view.x - width - edges.x - edges.z, 0.0) * 0.5
+	_column.add_theme_constant_override("margin_left", int(edges.x + extra))
+	_column.add_theme_constant_override("margin_right", int(edges.z + extra))
+	_column.add_theme_constant_override("margin_top", int(edges.y))
+	_column.add_theme_constant_override("margin_bottom", int(edges.w))
 	var columns := 1
-	if width >= 980.0:
+	if width >= 980.0 and view.y >= 640.0:
 		columns = 4
-	elif width >= 720.0:
+	elif width >= 720.0 and view.y >= 560.0:
 		columns = 3
-	elif width >= 460.0:
+	elif width >= 560.0:
 		columns = 2
 	_list.columns = columns
 
@@ -92,7 +94,7 @@ func _build_filters() -> void:
 		button.text = label
 		button.toggle_mode = true
 		button.button_pressed = label == "All"
-		button.custom_minimum_size = Vector2(0, 40)
+		button.custom_minimum_size = Vector2(0, 48)
 		button.pressed.connect(_set_filter.bind(label.to_upper()))
 		_filters.add_child(button)
 	var quick_title := Label.new()
@@ -101,8 +103,9 @@ func _build_filters() -> void:
 	quick_title.add_theme_color_override("font_color", UiTheme.COL_GOLD)
 	content.add_child(quick_title)
 	content.move_child(quick_title, _list.get_index())
-	_quick = HBoxContainer.new()
-	_quick.add_theme_constant_override("separation", 8)
+	_quick = HFlowContainer.new()
+	_quick.add_theme_constant_override("h_separation", 8)
+	_quick.add_theme_constant_override("v_separation", 8)
 	content.add_child(_quick)
 	content.move_child(_quick, _list.get_index())
 
@@ -158,7 +161,7 @@ func _make_quick(game: Dictionary) -> Button:
 	var button := Button.new()
 	button.text = str(game.get("name", "Play"))
 	button.theme_type_variation = "PrimaryButton"
-	button.custom_minimum_size = Vector2(0, 44)
+	button.custom_minimum_size = Vector2(148, 48)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.pressed.connect(_open_game.bind(game, button))
 	return button
@@ -169,7 +172,7 @@ func _make_card(game: Dictionary) -> PanelContainer:
 	var accent := UiTheme.game_accent(slug)
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size = Vector2(220, 0)
+	card.custom_minimum_size = Vector2(0, 0)
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	UiTheme.paint_card(card, accent)
 	card.mouse_entered.connect(func() -> void:
@@ -239,7 +242,7 @@ func _make_card(game: Dictionary) -> PanelContainer:
 	var play := Button.new()
 	play.text = "Play"
 	play.theme_type_variation = "PrimaryButton"
-	play.custom_minimum_size = Vector2(0, 46)
+	play.custom_minimum_size = Vector2(0, 52)
 	play.pressed.connect(_open_game.bind(game, card))
 	box.add_child(play)
 	return card

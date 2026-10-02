@@ -99,7 +99,7 @@ horizontal_alignment = 1
 
 [node name="Track" type="Control" parent="Scroll/Column/Content"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 16)
+custom_minimum_size = Vector2(0, 22)
 layout_mode = 2
 clip_contents = true
 

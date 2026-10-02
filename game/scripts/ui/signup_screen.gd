@@ -10,6 +10,7 @@ func _ready() -> void:
 	$Background.color = UiTheme.COL_BG
 	UiTheme.mood(self, "calm")
 	UiTheme.style_title(%Title, 34)
+	%Title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	%Title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	UiTheme.style_muted(%Heading)
 	%Heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

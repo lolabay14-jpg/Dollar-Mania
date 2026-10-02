@@ -8,6 +8,7 @@ func _ready() -> void:
 	$Background.color = UiTheme.COL_BG
 	UiTheme.mood(self, "lobby")
 	UiTheme.style_title(%Title, 40)
+	%Title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	%Title.text = "DOLLAR MANIA"
 	%Title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	UiTheme.style_muted(%Tagline)

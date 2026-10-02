@@ -91,24 +91,24 @@ static func mood(root: Node, mood_name: String, tint: Color = COL_GOLD) -> void:
 
 static func _build() -> Theme:
 	var built := Theme.new()
-	built.default_font_size = 17
+	built.default_font_size = 18
 
 	var card := _flat(COL_CARD, Color(COL_GOLD, 0.22), 18, 1, 16, 14)
 	card.shadow_color = Color(0, 0, 0, 0.32)
 	card.shadow_size = 12
 	card.shadow_offset = Vector2(0, 6)
-	var button := _flat(Color("1B2740"), COL_CARD_BORDER, 14, 1, 14, 12)
-	var button_hover := _flat(Color("243352"), COL_GOLD_DARK, 14, 1, 14, 12)
-	var button_pressed := _flat(Color("121A2C"), COL_GOLD, 14, 1, 14, 12)
-	var primary := _flat(COL_GOLD, COL_GOLD_SOFT, 14, 1, 14, 12)
+	var button := _flat(Color("1B2740"), COL_CARD_BORDER, 14, 1, 16, 16)
+	var button_hover := _flat(Color("243352"), COL_GOLD_DARK, 14, 1, 16, 16)
+	var button_pressed := _flat(Color("121A2C"), COL_GOLD, 14, 1, 16, 16)
+	var primary := _flat(COL_GOLD, COL_GOLD_SOFT, 14, 1, 16, 16)
 	primary.shadow_color = Color(COL_GOLD, 0.28)
 	primary.shadow_size = 10
-	var primary_hover := _flat(COL_GOLD_SOFT, COL_GOLD_SOFT, 14, 1, 14, 12)
-	var primary_pressed := _flat(COL_GOLD_DARK, COL_GOLD_DARK, 14, 1, 14, 12)
-	var danger := _flat(COL_DANGER_BG, Color("6E3140"), 12, 1, 14, 12)
-	var danger_hover := _flat(Color("4C2632"), COL_DANGER, 12, 1, 14, 12)
-	var selected := _flat(Color("2A2412"), COL_GOLD, 12, 2, 14, 12)
-	var field := _flat(Color("0E1626"), COL_CARD_BORDER, 12, 1, 12, 12)
+	var primary_hover := _flat(COL_GOLD_SOFT, COL_GOLD_SOFT, 14, 1, 16, 16)
+	var primary_pressed := _flat(COL_GOLD_DARK, COL_GOLD_DARK, 14, 1, 16, 16)
+	var danger := _flat(COL_DANGER_BG, Color("6E3140"), 12, 1, 16, 16)
+	var danger_hover := _flat(Color("4C2632"), COL_DANGER, 12, 1, 16, 16)
+	var selected := _flat(Color("2A2412"), COL_GOLD, 12, 2, 16, 16)
+	var field := _flat(Color("0E1626"), COL_CARD_BORDER, 12, 1, 14, 16)
 	var empty := StyleBoxEmpty.new()
 
 	built.set_color("font_color", "Label", COL_TEXT)
@@ -135,8 +135,11 @@ static func _build() -> Theme:
 	built.set_color("font_hover_color", "CheckBox", COL_GOLD)
 	built.set_color("font_pressed_color", "CheckBox", COL_GOLD)
 
+	built.set_font_size("font_size", "Button", 18)
+	built.set_font_size("font_size", "LineEdit", 18)
+	built.set_font_size("font_size", "CheckBox", 18)
 	built.set_stylebox("normal", "LineEdit", field)
-	built.set_stylebox("focus", "LineEdit", _flat(Color("0E1626"), COL_GOLD, 12, 2, 12, 12))
+	built.set_stylebox("focus", "LineEdit", _flat(Color("0E1626"), COL_GOLD, 12, 2, 14, 16))
 	built.set_stylebox("read_only", "LineEdit", field)
 	built.set_color("font_color", "LineEdit", COL_TEXT)
 	built.set_color("font_placeholder_color", "LineEdit", COL_MUTED)
@@ -162,7 +165,7 @@ static func _set_button(
 	built.set_stylebox("hover", type_name, hover)
 	built.set_stylebox("pressed", type_name, pressed)
 	built.set_stylebox("focus", type_name, hover)
-	built.set_stylebox("disabled", type_name, _flat(Color("1A2233"), Color("2A3348"), 12, 1, 14, 12))
+	built.set_stylebox("disabled", type_name, _flat(Color("1A2233"), Color("2A3348"), 12, 1, 16, 16))
 	built.set_color("font_color", type_name, font_color)
 	built.set_color("font_hover_color", type_name, pressed_color)
 	built.set_color("font_pressed_color", type_name, pressed_color)

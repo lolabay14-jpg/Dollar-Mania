@@ -148,7 +148,7 @@ text = "Level 1"
 
 [node name="LevelBar" type="ProgressBar" parent="Scroll/Column/Content"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 14)
+custom_minimum_size = Vector2(0, 18)
 layout_mode = 2
 max_value = 1.0
 show_percentage = false

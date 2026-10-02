@@ -500,7 +500,7 @@ func _ensure_game_controls() -> void:
 		var button := Button.new()
 		button.text = level
 		button.toggle_mode = true
-		button.custom_minimum_size = Vector2(0, 42)
+		button.custom_minimum_size = Vector2(0, 48)
 		button.pressed.connect(_choose_profile.bind(level))
 		levels.add_child(button)
 		_profile_buttons.append(button)
@@ -722,7 +722,8 @@ func _show_profile_editor() -> void:
 		spin.allow_greater = false
 		spin.allow_lesser = false
 		spin.value = float(parameters.get(key, definition.get("defaultValue", 0)))
-		spin.custom_minimum_size = Vector2(150, 40)
+		spin.custom_minimum_size = Vector2(128, 48)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		spin.editable = assigned != "DEFAULT"
 		row.add_child(spin)
 		_parameter_box.add_child(row)

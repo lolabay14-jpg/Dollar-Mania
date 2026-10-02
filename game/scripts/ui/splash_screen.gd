@@ -146,4 +146,6 @@ func _apply_status() -> void:
 
 func _fit() -> void:
 	ScreenLayout.fit_column(_column, 520.0)
+	%Title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiTheme.style_title(%Title, 34 if size.x < 520.0 else 48)
 	_apply_bar()
