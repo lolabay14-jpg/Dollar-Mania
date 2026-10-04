@@ -3,13 +3,14 @@ import jwt from "jsonwebtoken";
 import { config } from "../config";
 import { pool } from "../db";
 import { AppError } from "../errors";
+import type { AppRole } from "../middleware/authenticate";
 
 const HASH_ROUNDS = 12;
 
 export type PublicUser = {
   id: string;
   username: string;
-  role: "ADMIN" | "PLAYER";
+  role: AppRole;
 };
 
 type UserRow = PublicUser & {
@@ -70,11 +71,14 @@ export async function registerPlayer(input: {
 }
 
 export async function login(username: string, password: string) {
+  const identifier = username.trim();
   const result = await pool.query<UserRow>(
     `SELECT id, username, role, password_hash, is_active
      FROM users
-     WHERE username = $1`,
-    [username],
+     WHERE username = $1 OR LOWER(email) = LOWER($1)
+     ORDER BY CASE WHEN username = $1 THEN 0 ELSE 1 END
+     LIMIT 1`,
+    [identifier],
   );
   const user = result.rows[0];
   const passwordMatches = user ? await bcrypt.compare(password, user.password_hash) : false;

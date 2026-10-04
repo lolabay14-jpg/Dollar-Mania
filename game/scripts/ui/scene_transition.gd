@@ -30,17 +30,36 @@ func _ready() -> void:
 
 func cover() -> void:
 	_shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	var view := _current_view()
 	var tween := create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(_shade, "color:a", 0.94, 0.22).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	tween.tween_property(_glow, "color:a", 0.8, 0.18).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_shade, "color:a", 0.94, 0.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tween.tween_property(_glow, "color:a", 0.55, 0.16).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if view:
+		view.pivot_offset = view.size * 0.5
+		tween.tween_property(view, "scale", Vector2(0.985, 0.985), 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	await tween.finished
 
 
 func reveal() -> void:
+	var view := _current_view()
+	if view:
+		view.scale = Vector2(1.015, 1.015)
+		view.pivot_offset = view.size * 0.5
 	var tween := create_tween()
 	tween.set_parallel(true)
-	tween.tween_property(_shade, "color:a", 0.0, 0.32).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tween.tween_property(_glow, "color:a", 0.0, 0.24).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tween.tween_property(_shade, "color:a", 0.0, 0.28).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_glow, "color:a", 0.0, 0.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	if view:
+		tween.tween_property(view, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	await tween.finished
 	_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if view and is_instance_valid(view):
+		view.scale = Vector2.ONE
+
+
+func _current_view() -> Control:
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null or not tree.current_scene is Control:
+		return null
+	return tree.current_scene

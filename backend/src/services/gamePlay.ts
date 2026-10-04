@@ -72,6 +72,41 @@ function resolveBase(slug: string, choice: unknown, parameters: RoundParameters)
         [20, 8, 16, 6, 16, 3, 14, 8, 12, 2, 14, 1],
         parameters,
       );
+    case "fruit-spin":
+      return labeledWheel(
+        slug,
+        "fruit",
+        [0, 1, 0, 2, 1, 4, 2, 0, 8, 3],
+        [14, 12, 14, 10, 12, 8, 8, 12, 3, 7],
+        ["cherry", "lemon", "orange", "melon", "grapes", "berry", "diamond", "star", "seven", "coin"],
+        parameters,
+      );
+    case "lucky-wheel":
+      return labeledWheel(
+        slug,
+        "lucky",
+        [0, 2, 0, 5, 1, 0, 10, 3, 0, 20],
+        [16, 10, 14, 6, 12, 14, 3, 8, 14, 2],
+        ["coin", "star", "coin", "diamond", "coin", "star", "seven", "coin", "star", "diamond"],
+        parameters,
+      );
+    case "prize-spinner":
+      return labeledWheel(
+        slug,
+        "spinner",
+        [0, 1, 3, 0, 2, 8, 0, 4],
+        [18, 14, 8, 16, 12, 3, 16, 6],
+        ["coin", "star", "diamond", "coin", "seven", "bonus", "star", "dollar"],
+        parameters,
+      );
+    case "fishing":
+      return fishing();
+    case "dice":
+      return dice();
+    case "lucky-number":
+      return luckyNumber(choice);
+    case "higher-card":
+      return higherCard();
     default:
       throw new AppError(400, "This game is not ready yet.");
   }
@@ -114,7 +149,7 @@ function applyDifficulty(round: PlayRound, difficulty: string, reroll: () => Pla
     return {
       ...round,
       multiplier: Math.round(round.multiplier * 1.5 * 100) / 100,
-      title: `${round.title} · high risk`,
+      title: round.title,
     };
   }
   if (level === "MEDIUM" && round.multiplier >= 10) {
@@ -205,9 +240,80 @@ function scratchMania(): PlayRound {
   };
 }
 
+function labeledWheel(
+  slug: string,
+  kind: "fruit" | "lucky" | "spinner",
+  segments: number[],
+  weights: number[],
+  symbols: string[],
+  parameters: RoundParameters,
+): PlayRound {
+  const round = spinWheel(slug, kind, segments, weights, parameters);
+  return {
+    ...round,
+    presentation: { ...round.presentation, symbols },
+  };
+}
+
+function dice(): PlayRound {
+  const first = randomInt(6) + 1;
+  const second = randomInt(6) + 1;
+  const total = first + second;
+  const doubles = first === second;
+  let multiplier = 0;
+  if (total === 7) {
+    multiplier = 2;
+  } else if (doubles && (total === 2 || total === 12)) {
+    multiplier = 8;
+  } else if (doubles) {
+    multiplier = 3;
+  }
+  return {
+    multiplier,
+    title: `${first} and ${second}`,
+    presentation: { kind: "dice", dice: [first, second], total },
+  };
+}
+
+function luckyNumber(choice: unknown): PlayRound {
+  const pick = wholeNumber(choice);
+  if (pick === null || pick < 1 || pick > 10) {
+    throw new AppError(400, "Choose a number from 1 to 10.");
+  }
+  const draw = randomInt(10) + 1;
+  const gap = Math.abs(draw - pick);
+  const multiplier = gap === 0 ? 6 : gap === 1 ? 1 : 0;
+  return {
+    multiplier,
+    title: gap === 0 ? `Number ${draw}` : `Drew ${draw}`,
+    presentation: { kind: "number", pick, draw },
+  };
+}
+
+function fishing(): PlayRound {
+  const table = [
+    { id: "none", name: "No catch", rarity: "Miss", multiplier: 0, weight: 28 },
+    { id: "small", name: "Small Fish", rarity: "Common", multiplier: 1, weight: 32 },
+    { id: "blue", name: "Blue Fish", rarity: "Uncommon", multiplier: 2, weight: 24 },
+    { id: "golden", name: "Golden Fish", rarity: "Rare", multiplier: 5, weight: 12 },
+    { id: "legend", name: "Legendary Fish", rarity: "Special", multiplier: 12, weight: 4 },
+  ];
+  const fish = table[weightedIndex(table.map((entry) => entry.weight))];
+  return {
+    multiplier: fish.multiplier,
+    title: fish.multiplier > 0 ? fish.name : "The line came back empty",
+    presentation: {
+      kind: "fishing",
+      fish: fish.id,
+      name: fish.name,
+      rarity: fish.rarity,
+    },
+  };
+}
+
 function spinWheel(
   slug: string,
-  kind: "wheel" | "jackpot",
+  kind: "wheel" | "jackpot" | "fruit" | "lucky" | "spinner",
   segments: number[],
   weights: number[],
   parameters: RoundParameters,
@@ -325,6 +431,55 @@ function bonusBurst(parameters: RoundParameters): PlayRound {
     title: count > 0 ? `${count} collected` : "Burst missed",
     presentation: { kind: "burst", count, seconds: 6 },
   };
+}
+
+const CARD_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"] as const;
+const CARD_SUITS = ["hearts", "diamonds", "clubs", "spades"] as const;
+
+function higherCard(): PlayRound {
+  const deck: { rank: string; suit: string }[] = [];
+  for (const suit of CARD_SUITS) {
+    for (const rank of CARD_RANKS) {
+      deck.push({ rank, suit });
+    }
+  }
+  for (let index = deck.length - 1; index > 0; index -= 1) {
+    const swap = randomInt(index + 1);
+    const current = deck[index];
+    deck[index] = deck[swap];
+    deck[swap] = current;
+  }
+  const player = deck[0];
+  const house = deck[1];
+  const playerValue = cardRank(player.rank);
+  const houseValue = cardRank(house.rank);
+  if (playerValue > houseValue) {
+    return {
+      multiplier: 2,
+      title: "Higher card",
+      presentation: { kind: "cards", player, house, outcome: "win" },
+    };
+  }
+  if (playerValue === houseValue) {
+    return {
+      multiplier: 1,
+      title: "Push",
+      presentation: { kind: "cards", player, house, outcome: "push" },
+    };
+  }
+  return {
+    multiplier: 0,
+    title: "House wins",
+    presentation: { kind: "cards", player, house, outcome: "lose" },
+  };
+}
+
+function cardRank(rank: string): number {
+  if (rank === "A") return 14;
+  if (rank === "K") return 13;
+  if (rank === "Q") return 12;
+  if (rank === "J") return 11;
+  return Number(rank);
 }
 
 function pickWeighted<T>(values: T[], weights: number[]): T {

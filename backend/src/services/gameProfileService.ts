@@ -8,7 +8,7 @@ import {
   type ProfileLevel,
   clampParameter,
 } from "./gameParameters";
-import { findUserByEmail, getUser } from "./userService";
+import { findUserByEmail, getUser, type PlayerGameMode } from "./userService";
 
 type GameRow = {
   id: string;
@@ -53,7 +53,8 @@ export async function getAssignedTuning(
   );
   const row = result.rows[0];
   if (!row || row.profile === "DEFAULT") {
-    return { difficulty: gameDifficulty, parameters: {} as Record<string, number> };
+    const mode = await playerGameMode(client, userId);
+    return { difficulty: mode, parameters: {} as Record<string, number> };
   }
   const stored = row.parameters && typeof row.parameters === "object" ? row.parameters : {};
   const parameters: Record<string, number> = {};
@@ -148,6 +149,18 @@ export async function setPlayerGameProfile(
     );
     return present(user, game, saved.rows[0]);
   });
+}
+
+async function playerGameMode(client: PoolClient, userId: string): Promise<PlayerGameMode> {
+  const result = await client.query<{ game_mode: string | null }>(
+    "SELECT game_mode FROM users WHERE id = $1",
+    [userId],
+  );
+  const mode = String(result.rows[0]?.game_mode ?? "MEDIUM").toUpperCase();
+  if (mode === "EASY" || mode === "HARD") {
+    return mode;
+  }
+  return "MEDIUM";
 }
 
 async function requirePlayer(userId: string) {

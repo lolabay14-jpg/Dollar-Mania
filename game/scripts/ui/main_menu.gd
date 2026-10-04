@@ -54,7 +54,6 @@ func _on_play() -> void:
 	AppState.selected_game = {
 		"slug": "lucky-dollar",
 		"name": "Lucky Dollar",
-		"difficulty": "EASY",
 		"description": "Three reels and one payline.",
 		"min_bet": 1,
 		"max_bet": 100,

@@ -164,7 +164,7 @@ func _animate(grid: Array) -> void:
 
 func _refresh_credits() -> void:
 	%Title.text = str(_rules.get("name", "Lucky Dollar"))
-	%Difficulty.text = str(_rules.get("difficulty", ""))
+	%Difficulty.visible = false
 	var wallet: Dictionary = await ApiClient.get_wallet()
 	if not is_inside_tree():
 		return

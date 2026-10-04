@@ -33,10 +33,67 @@ export async function listActiveGames(): Promise<SlotGame[]> {
        WHEN 'diamond-drop' THEN 9
        WHEN 'bonus-burst' THEN 10
        WHEN 'jackpot-wheel' THEN 11
+       WHEN 'higher-card' THEN 12
+       WHEN 'fruit-spin' THEN 13
+       WHEN 'lucky-wheel' THEN 14
+       WHEN 'prize-spinner' THEN 15
+       WHEN 'fishing' THEN 16
+       WHEN 'dice' THEN 17
+       WHEN 'lucky-number' THEN 18
        ELSE 100
      END, name ASC`,
   );
   return result.rows.map(mapGame);
+}
+
+export async function setGameActive(gameKey: string, isActive: boolean): Promise<SlotGame> {
+  const result = await pool.query(
+    `UPDATE slot_games
+     SET is_active = $2, updated_at = now()
+     WHERE id::text = $1 OR slug = $1
+     RETURNING id, name, slug, description, difficulty, category, minimum_bet, maximum_bet, is_active`,
+    [gameKey, isActive],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new AppError(404, "Game not found.");
+  }
+  return mapGame(row);
+}
+
+export async function listGamesForAdmin(): Promise<Array<SlotGame & { spins: number }>> {
+  const result = await pool.query(
+    `SELECT g.id, g.name, g.slug, g.description, g.difficulty, g.category,
+            g.minimum_bet, g.maximum_bet, g.is_active, COUNT(s.id)::int AS spins
+     FROM slot_games g
+     LEFT JOIN slot_spins s ON s.slot_game_id = g.id
+     GROUP BY g.id
+     ORDER BY CASE g.slug
+       WHEN 'lucky-dollar' THEN 1
+       WHEN 'golden-fortune' THEN 2
+       WHEN 'dollar-rush' THEN 3
+       WHEN 'scratch-mania' THEN 4
+       WHEN 'lucky-spin' THEN 5
+       WHEN 'coin-flip' THEN 6
+       WHEN 'treasure-box' THEN 7
+       WHEN 'cash-match' THEN 8
+       WHEN 'diamond-drop' THEN 9
+       WHEN 'bonus-burst' THEN 10
+       WHEN 'jackpot-wheel' THEN 11
+       WHEN 'higher-card' THEN 12
+       WHEN 'fruit-spin' THEN 13
+       WHEN 'lucky-wheel' THEN 14
+       WHEN 'prize-spinner' THEN 15
+       WHEN 'fishing' THEN 16
+       WHEN 'dice' THEN 17
+       WHEN 'lucky-number' THEN 18
+       ELSE 100
+     END, g.name ASC`,
+  );
+  return result.rows.map((row) => ({
+    ...mapGame(row),
+    spins: Number(row.spins ?? 0),
+  }));
 }
 
 type PlayReceipt = {
@@ -161,7 +218,7 @@ async function completeSpin(userId: string, gameId: string, betAmount: number, c
       `INSERT INTO game_sessions
          (user_id, slot_game_id, status, started_at, ended_at, score, credits_used, credits_won)
        VALUES ($1, $2, 'COMPLETED', now(), now(), $3, $4, $5)`,
-      [userId, game.id, winAmount, betAmount, winAmount],
+      [userId, game.id, Math.round(winAmount), betAmount, winAmount],
     );
     await client.query(
       `UPDATE player_profiles

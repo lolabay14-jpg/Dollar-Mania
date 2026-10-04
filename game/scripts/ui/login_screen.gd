@@ -13,17 +13,16 @@ func _ready() -> void:
 	%Title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	%Title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	UiTheme.style_muted(%Welcome)
+	%Welcome.text = "Sign in with your player or admin account"
 	%Welcome.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	UiTheme.paint_glass(%Card)
 	UiTheme.style_muted(%ErrorLabel)
 	%ErrorLabel.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	%LoginButton.theme_type_variation = "PrimaryButton"
-	%SignupButton.theme_type_variation = "TextLink"
-	%Username.placeholder_text = "Username"
+	%Username.placeholder_text = "Username or email"
 	%Password.placeholder_text = "Password"
 	%Password.secret = true
 	%LoginButton.pressed.connect(_submit)
-	%SignupButton.pressed.connect(AppState.go_signup)
 	%Username.text_submitted.connect(func(_text: String) -> void: %Password.grab_focus())
 	%Password.text_submitted.connect(func(_text: String) -> void: _submit())
 	resized.connect(_fit)
@@ -48,11 +47,10 @@ func _submit() -> void:
 	var username_value := str(%Username.text).strip_edges()
 	var password := str(%Password.text)
 	if username_value == "" or password == "":
-		_show_error("Enter your username and password.")
+		_show_error("Enter your username or email and password.")
 		return
 	_busy = true
 	%LoginButton.disabled = true
-	%SignupButton.disabled = true
 	%LoginButton.text = "Signing in..."
 	_show_error("")
 	var response: Dictionary = await ApiClient.login(username_value, password)
@@ -61,7 +59,6 @@ func _submit() -> void:
 	if not response.ok:
 		_busy = false
 		%LoginButton.disabled = false
-		%SignupButton.disabled = false
 		%LoginButton.text = "Login"
 		_show_error(str(response.error))
 		return
@@ -70,22 +67,30 @@ func _submit() -> void:
 	if not is_inside_tree():
 		return
 	if not me.ok:
+		push_error("Login session check failed. HTTP status %d. Response: %s" % [
+			int(me.get("status", 0)),
+			str(me.get("body", me.get("error", ""))),
+		])
 		ApiClient.logout()
 		_busy = false
 		%LoginButton.disabled = false
-		%SignupButton.disabled = false
 		%LoginButton.text = "Login"
 		_show_error(str(me.error))
 		return
-	if ApiClient.role() == "ADMIN":
+	if ApiClient.role() == "SUPER_ADMIN":
+		AppState.go_super_admin()
+	elif ApiClient.role() == "ADMIN":
 		AppState.go_admin()
 	elif ApiClient.role() == "PLAYER":
 		AppState.go_player()
 	else:
+		push_error("Login failed. HTTP status %d. Role '%s' cannot open a dashboard." % [
+			int(me.get("status", 200)),
+			ApiClient.role(),
+		])
 		ApiClient.logout()
 		_busy = false
 		%LoginButton.disabled = false
-		%SignupButton.disabled = false
 		%LoginButton.text = "Login"
 		_show_error("This account cannot sign in.")
 

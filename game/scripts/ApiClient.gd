@@ -40,15 +40,6 @@ func logout() -> void:
 	_clear_session()
 
 
-func register(username_value: String, email: String, password: String, confirm_password: String) -> Dictionary:
-	return await _request(HTTPClient.METHOD_POST, "/api/auth/register", {
-		"username": username_value,
-		"email": email,
-		"password": password,
-		"confirmPassword": confirm_password,
-	}, false)
-
-
 func login(username_value: String, password: String) -> Dictionary:
 	var response := await _request(HTTPClient.METHOD_POST, "/api/auth/login", {
 		"username": username_value,
@@ -57,18 +48,28 @@ func login(username_value: String, password: String) -> Dictionary:
 	if response.ok:
 		var data: Dictionary = response.data
 		_token = str(data.get("token", ""))
-		var user = data.get("user", {})
-		_user = user if user is Dictionary else {}
+		var user_value: Variant = data.get("user", {})
+		var user: Dictionary = user_value if user_value is Dictionary else {}
+		_user = user
+		if _token == "":
+			_log_login_failure(int(response.get("status", 0)), "Login response did not include a session token.", int(response.get("transport", HTTPRequest.RESULT_SUCCESS)))
+			return _fail(int(response.get("status", 0)), "Login response did not include a session token.")
 		_save_session()
+	else:
+		_log_login_failure(
+			int(response.get("status", 0)),
+			str(response.get("body", response.get("error", ""))),
+			int(response.get("transport", HTTPRequest.RESULT_SUCCESS))
+		)
 	return response
 
 
 func get_current_user() -> Dictionary:
 	var response := await _request(HTTPClient.METHOD_GET, "/api/auth/me")
 	if response.ok:
-		var user = response.data.get("user", {})
-		if user is Dictionary:
-			_user = user
+		var user_value: Variant = response.data.get("user", {})
+		if user_value is Dictionary:
+			_user = user_value
 	return response
 
 
@@ -91,6 +92,11 @@ func get_spin_history() -> Dictionary:
 	return await _request(HTTPClient.METHOD_GET, "/api/player/spins")
 
 
+func reload_slot_games() -> Dictionary:
+	games_cache.clear()
+	return await _refresh_games()
+
+
 func get_slot_games() -> Dictionary:
 	if not games_cache.is_empty():
 		if not _refreshing:
@@ -104,9 +110,9 @@ func _refresh_games() -> Dictionary:
 	var response := await _request(HTTPClient.METHOD_GET, "/api/player/games")
 	_refreshing = false
 	if response.ok:
-		var games = response.data.get("games", [])
-		if games is Array:
-			games_cache = games
+		var games_value: Variant = response.data.get("games", [])
+		if games_value is Array:
+			games_cache = games_value
 	return response
 
 
@@ -143,8 +149,82 @@ func spin(game_id: String, bet_amount: int, choice: Variant = null, request_id :
 	)
 
 
+func admin_overview() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/overview")
+
+
+func admin_games() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/games")
+
+
+func admin_platform_settings() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/settings")
+
+
+func admin_set_game_mode(mode: String) -> Dictionary:
+	return await _request(HTTPClient.METHOD_PUT, "/api/admin/settings/mode", {"gameMode": mode})
+
+
+func admin_set_player_game_mode(user_id: String, mode: String) -> Dictionary:
+	return await _request(
+		HTTPClient.METHOD_PATCH,
+		"/api/admin/users/%s/game-mode" % user_id.uri_encode(),
+		{"gameMode": mode}
+	)
+
+
+func admin_set_game_active(game_id: String, active: bool) -> Dictionary:
+	return await _request(HTTPClient.METHOD_PATCH, "/api/admin/games/%s" % game_id.uri_encode(), {"isActive": active})
+
+
+func admin_plays() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/plays")
+
+
 func admin_users() -> Dictionary:
 	return await _request(HTTPClient.METHOD_GET, "/api/admin/users")
+
+
+func admin_create_player(
+	username_value: String,
+	email: String,
+	password: String,
+	confirm_password: String,
+	starting_credits: int
+) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/api/admin/users", {
+		"username": username_value,
+		"email": email,
+		"password": password,
+		"confirmPassword": confirm_password,
+		"startingCredits": starting_credits,
+		"role": "PLAYER",
+	})
+
+
+func admin_create_admin(username_value: String, email: String, password: String, confirm_password: String) -> Dictionary:
+	return await _request(HTTPClient.METHOD_POST, "/api/admin/staff", {
+		"username": username_value,
+		"email": email,
+		"password": password,
+		"confirmPassword": confirm_password,
+	})
+
+
+func admin_set_staff_active(user_id: String, active: bool) -> Dictionary:
+	return await _request(
+		HTTPClient.METHOD_PATCH,
+		"/api/admin/staff/%s/access" % user_id.uri_encode(),
+		{"isActive": active}
+	)
+
+
+func admin_update_player(user_id: String, fields: Dictionary) -> Dictionary:
+	return await _request(HTTPClient.METHOD_PATCH, "/api/admin/users/%s" % user_id.uri_encode(), fields)
+
+
+func admin_player_history(user_id: String) -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/users/%s/history" % user_id.uri_encode())
 
 
 func admin_search_user(email: String) -> Dictionary:
@@ -175,11 +255,24 @@ func admin_set_game_profile(user_id: String, game_id: String, profile: String, p
 	)
 
 
-func admin_adjust_credits(user_id: String, amount: int, action: String) -> Dictionary:
+func admin_staff() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/staff")
+
+
+func admin_ledger(user_id: String) -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/users/%s/ledger" % user_id.uri_encode())
+
+
+func admin_adjust_credits(user_id: String, amount: int, action: String, note: String = "", request_id: String = "") -> Dictionary:
+	var body := {"amount": amount, "action": action}
+	if note != "":
+		body["note"] = note
+	if request_id != "":
+		body["requestId"] = request_id
 	return await _request(
 		HTTPClient.METHOD_POST,
 		"/api/admin/users/%s/credits" % user_id.uri_encode(),
-		{"amount": amount, "action": action}
+		body
 	)
 
 
@@ -196,27 +289,114 @@ func _request(method: int, path: String, body: Variant = null, authenticated := 
 			http.queue_free()
 			return _fail(401, "Missing token")
 		headers.append("Authorization: Bearer " + _token)
-	var error := http.request(GameConfig.API_BASE_URL + path, headers, method, payload)
-	if error != OK:
+	var start_error := http.request(GameConfig.API_BASE_URL + path, headers, method, payload)
+	if start_error != OK:
 		http.queue_free()
-		return _fail(0, "Could not reach the server.")
+		return _cannot_start(start_error)
 	var completed: Array = await http.request_completed
 	if is_instance_valid(http):
 		http.queue_free()
-	if int(completed[0]) != HTTPRequest.RESULT_SUCCESS:
-		return _fail(0, "Could not reach the server.")
+	var result := _http_result(int(completed[0]))
+	if result != HTTPRequest.RESULT_SUCCESS:
+		return _fail(0, "Could not reach the server.", "", result)
 	var code := int(completed[1])
-	var parsed: Variant = JSON.parse_string(PackedByteArray(completed[3]).get_string_from_utf8())
+	var raw_body := PackedByteArray(completed[3]).get_string_from_utf8()
+	var parsed: Variant = JSON.parse_string(raw_body)
 	var data: Dictionary = parsed if parsed is Dictionary else {}
 	if code >= 200 and code < 300:
-		if data.has("balance"):
+		if data.has("balance") and not data.has("senderBalance"):
 			balance_cache = float(data.get("balance", balance_cache))
-		return {"ok": true, "status": code, "data": data, "error": ""}
-	return _fail(code, str(data.get("error", "Request failed.")))
+		return {"ok": true, "status": code, "data": data, "error": "", "body": "", "transport": result}
+	return _fail(code, str(data.get("error", "Request failed.")), raw_body, result)
 
 
-func _fail(code: int, message: String) -> Dictionary:
-	return {"ok": false, "status": code, "data": {}, "error": message}
+func _cannot_start(start_error: Error) -> Dictionary:
+	var detail := "Could not reach the server. Request was not started (%s)." % error_string(start_error)
+	return {
+		"ok": false,
+		"status": 0,
+		"data": {},
+		"error": "Could not reach the server.",
+		"body": detail,
+		"transport": int(start_error),
+	}
+
+
+func _fail(code: int, message: String, raw_body := "", result := HTTPRequest.RESULT_SUCCESS) -> Dictionary:
+	return {
+		"ok": false,
+		"status": code,
+		"data": {},
+		"error": message,
+		"body": _redact_secrets(raw_body if raw_body != "" else message),
+		"transport": result,
+	}
+
+
+func _http_result(value: int) -> HTTPRequest.Result:
+	match value:
+		HTTPRequest.RESULT_SUCCESS:
+			return HTTPRequest.RESULT_SUCCESS
+		HTTPRequest.RESULT_CHUNKED_BODY_SIZE_MISMATCH:
+			return HTTPRequest.RESULT_CHUNKED_BODY_SIZE_MISMATCH
+		HTTPRequest.RESULT_CANT_CONNECT:
+			return HTTPRequest.RESULT_CANT_CONNECT
+		HTTPRequest.RESULT_CANT_RESOLVE:
+			return HTTPRequest.RESULT_CANT_RESOLVE
+		HTTPRequest.RESULT_CONNECTION_ERROR:
+			return HTTPRequest.RESULT_CONNECTION_ERROR
+		HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR:
+			return HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR
+		HTTPRequest.RESULT_NO_RESPONSE:
+			return HTTPRequest.RESULT_NO_RESPONSE
+		HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED:
+			return HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED
+		HTTPRequest.RESULT_BODY_DECOMPRESS_FAILED:
+			return HTTPRequest.RESULT_BODY_DECOMPRESS_FAILED
+		HTTPRequest.RESULT_REQUEST_FAILED:
+			return HTTPRequest.RESULT_REQUEST_FAILED
+		HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN:
+			return HTTPRequest.RESULT_DOWNLOAD_FILE_CANT_OPEN
+		HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR:
+			return HTTPRequest.RESULT_DOWNLOAD_FILE_WRITE_ERROR
+		HTTPRequest.RESULT_REDIRECT_LIMIT_REACHED:
+			return HTTPRequest.RESULT_REDIRECT_LIMIT_REACHED
+		HTTPRequest.RESULT_TIMEOUT:
+			return HTTPRequest.RESULT_TIMEOUT
+		_:
+			return HTTPRequest.RESULT_REQUEST_FAILED
+
+
+func _log_login_failure(status: int, raw_body: String, transport: int) -> void:
+	var detail := _redact_secrets(raw_body)
+	if transport != HTTPRequest.RESULT_SUCCESS:
+		push_error("Login failed. HTTP status %d. Transport result %d. Response: %s" % [status, transport, detail])
+		return
+	push_error("Login failed. HTTP status %d. Response: %s" % [status, detail])
+
+
+func _redact_secrets(text: String) -> String:
+	var parsed: Variant = JSON.parse_string(text)
+	if parsed is Dictionary:
+		var copy: Dictionary = (parsed as Dictionary).duplicate(true)
+		_strip_secrets(copy)
+		return JSON.stringify(copy)
+	var redacted := text
+	var pieces := redacted.split(" ")
+	for index in pieces.size():
+		var piece := str(pieces[index])
+		if piece.count(".") == 2 and piece.length() > 20:
+			pieces[index] = "[redacted]"
+	return " ".join(pieces)
+
+
+func _strip_secrets(data: Dictionary) -> void:
+	for key in data.keys():
+		var name := str(key).to_lower()
+		if name in ["password", "token", "access_token", "accesstoken", "authorization", "jwt", "secret", "password_hash"]:
+			data[key] = "[redacted]"
+		elif data[key] is Dictionary:
+			_strip_secrets(data[key])
 
 
 func _load_session() -> void:

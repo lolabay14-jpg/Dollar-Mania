@@ -1,7 +1,6 @@
 extends Node
 
 const SCENE_LOGIN := "res://game/scenes/login_screen.tscn"
-const SCENE_SIGNUP := "res://game/scenes/signup_screen.tscn"
 const SCENE_SPLASH := "res://game/scenes/splash_screen.tscn"
 const SCENE_MAIN := "res://game/scenes/main_menu.tscn"
 const SCENE_SLOTS := "res://game/scenes/slot_games.tscn"
@@ -9,6 +8,7 @@ const SCENE_MACHINE := "res://game/scenes/game_stage.tscn"
 const SCENE_SETTINGS := "res://game/scenes/settings_screen.tscn"
 const SCENE_PLAYER := "res://game/scenes/player_dashboard.tscn"
 const SCENE_ADMIN := "res://game/scenes/admin_dashboard.tscn"
+const SCENE_SUPER_ADMIN := "res://game/scenes/super_admin_dashboard.tscn"
 const SCENE_GAME := "res://game/scenes/main_game.tscn"
 const SCENE_GAME_OVER := "res://game/scenes/game_over.tscn"
 
@@ -34,17 +34,8 @@ func go_start() -> void:
 
 
 func go_login() -> void:
-	var from_signup := false
-	var current := get_tree().current_scene
-	if current:
-		from_signup = str(current.scene_file_path).ends_with("signup_screen.tscn")
-	SceneTransition.slide = -1 if from_signup else 0
+	SceneTransition.slide = 0
 	_change(SCENE_LOGIN)
-
-
-func go_signup() -> void:
-	SceneTransition.slide = 1
-	_change(SCENE_SIGNUP)
 
 
 func go_main() -> void:
@@ -69,6 +60,10 @@ func go_player() -> void:
 
 func go_admin() -> void:
 	_change(SCENE_ADMIN)
+
+
+func go_super_admin() -> void:
+	_change(SCENE_SUPER_ADMIN)
 
 
 func _change(path: String) -> void:

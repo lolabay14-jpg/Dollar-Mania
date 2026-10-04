@@ -4,10 +4,12 @@ import { config } from "../config";
 import { pool } from "../db";
 import { AppError } from "../errors";
 
+export type AppRole = "SUPER_ADMIN" | "ADMIN" | "PLAYER";
+
 export type AuthUser = {
   id: string;
   username: string;
-  role: "ADMIN" | "PLAYER";
+  role: AppRole;
   isActive: boolean;
 };
 
@@ -49,12 +51,12 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     return;
   }
 
-  const result = await pool.query<{ id: string; username: string; role: "ADMIN" | "PLAYER"; is_active: boolean }>(
+  const result = await pool.query<{ id: string; username: string; role: AppRole; is_active: boolean }>(
     "SELECT id, username, role, is_active FROM users WHERE id = $1",
     [userId],
   );
   const row = result.rows[0];
-  if (!row) {
+  if (!row || !isAppRole(row.role)) {
     next(new AppError(401, "Invalid token"));
     return;
   }
@@ -70,4 +72,8 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     isActive: row.is_active,
   };
   next();
+}
+
+function isAppRole(role: string): role is AppRole {
+  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "PLAYER";
 }

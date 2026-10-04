@@ -102,6 +102,69 @@ const GAMES = [
     minimumBet: 20,
     maximumBet: 500,
   },
+  {
+    name: "Cards",
+    slug: "higher-card",
+    description: "Draw a card. Higher than the house wins.",
+    difficulty: "EASY",
+    category: "CARDS",
+    minimumBet: 5,
+    maximumBet: 200,
+  },
+  {
+    name: "Fruit Spin",
+    slug: "fruit-spin",
+    description: "Spin a fruit wheel and land on a prize.",
+    difficulty: "MEDIUM",
+    category: "SPIN",
+    minimumBet: 5,
+    maximumBet: 100,
+  },
+  {
+    name: "Lucky Wheel",
+    slug: "lucky-wheel",
+    description: "A prize wheel with coins, symbols, and multipliers.",
+    difficulty: "MEDIUM",
+    category: "SPIN",
+    minimumBet: 5,
+    maximumBet: 200,
+  },
+  {
+    name: "Prize Spinner",
+    slug: "prize-spinner",
+    description: "A glowing spinner that settles on a reward.",
+    difficulty: "MEDIUM",
+    category: "SPIN",
+    minimumBet: 5,
+    maximumBet: 150,
+  },
+  {
+    name: "Fishing",
+    slug: "fishing",
+    description: "Cast a line and see what the water brings in.",
+    difficulty: "MEDIUM",
+    category: "FISHING",
+    minimumBet: 5,
+    maximumBet: 100,
+  },
+  {
+    name: "Dice",
+    slug: "dice",
+    description: "Roll two dice and land a winning total.",
+    difficulty: "MEDIUM",
+    category: "CHOICE",
+    minimumBet: 5,
+    maximumBet: 100,
+  },
+  {
+    name: "Lucky Number",
+    slug: "lucky-number",
+    description: "Pick a number and see what is drawn.",
+    difficulty: "MEDIUM",
+    category: "MATCH",
+    minimumBet: 5,
+    maximumBet: 100,
+  },
 ];
 
 async function seed() {
@@ -120,6 +183,8 @@ async function seed() {
     config.DEFAULT_PLAYER2_PASSWORD,
     config.STARTING_CREDITS,
   );
+  const { ensureSuperAdmin } = await import("../src/services/userService");
+  await ensureSuperAdmin();
 
   for (const game of GAMES) {
     await pool.query(

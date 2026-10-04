@@ -124,7 +124,8 @@ func record_round(player_id: String, game_name: String, bet: int, payout: int, t
 
 func get_level(player_id: String) -> int:
 	var spins := int(get_player(player_id).get("spins", 0))
-	return 1 + int(spins / GameConfig.SPINS_PER_LEVEL)
+	var completed_levels := int(float(spins) / float(GameConfig.SPINS_PER_LEVEL))
+	return 1 + completed_levels
 
 
 func get_level_progress(player_id: String) -> float:

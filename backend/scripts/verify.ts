@@ -90,7 +90,7 @@ async function main() {
     confirmPassword: "dev-player-pass",
     displayName: "Test Player",
   });
-  check("register player", registered.status === 201 && registered.body.user?.role === "PLAYER");
+  check("public register closed", registered.status === 403);
 
   const registerAdmin = await send(base, "POST", "/api/auth/register", {
     username: `admin_${stamp}`,
@@ -99,7 +99,40 @@ async function main() {
     confirmPassword: "dev-player-pass",
     role: "ADMIN",
   });
-  check("register cannot choose admin", registerAdmin.status === 400);
+  check("public register cannot create admin", registerAdmin.status === 403);
+
+  const created = await send(
+    base,
+    "POST",
+    "/api/admin/users",
+    {
+      username: `player_${stamp}`,
+      email: `player_${stamp}@dollarmania.local`,
+      password: "dev-player-pass",
+      confirmPassword: "dev-player-pass",
+      displayName: "Test Player",
+      startingCredits: 0,
+    },
+    adminToken,
+  );
+  check("admin creates player", created.status === 201 && created.body.user?.role === "PLAYER");
+
+  const createdAdmin = await send(
+    base,
+    "POST",
+    "/api/admin/users",
+    {
+      username: `admin_${stamp}`,
+      email: `admin_${stamp}@dollarmania.local`,
+      password: "dev-player-pass",
+      confirmPassword: "dev-player-pass",
+      displayName: "Nope",
+      startingCredits: 10,
+      role: "ADMIN",
+    },
+    adminToken,
+  );
+  check("create player rejects admin role", createdAdmin.status === 400);
 
   const noToken = await send(base, "GET", "/api/player/wallet");
   check("missing jwt", noToken.status === 401);
@@ -371,6 +404,13 @@ async function main() {
     "diamond-drop": ["HARD", "MATCH", 10, 400],
     "bonus-burst": ["MEDIUM", "BONUS", 10, 250],
     "jackpot-wheel": ["HARD", "SPIN", 20, 500],
+    "higher-card": ["EASY", "CARDS", 5, 200],
+    "fruit-spin": ["MEDIUM", "SPIN", 5, 100],
+    "lucky-wheel": ["MEDIUM", "SPIN", 5, 200],
+    "prize-spinner": ["MEDIUM", "SPIN", 5, 150],
+    "fishing": ["MEDIUM", "FISHING", 5, 100],
+    "dice": ["MEDIUM", "CHOICE", 5, 100],
+    "lucky-number": ["MEDIUM", "MATCH", 5, 100],
   };
   for (const game of games.body.games ?? []) {
     const spec = expectedGames[game.slug];

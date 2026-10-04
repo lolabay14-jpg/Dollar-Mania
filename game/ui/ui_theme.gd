@@ -61,6 +61,20 @@ static func game_accent(slug: String) -> Color:
 			return Color("FFB45A")
 		"jackpot-wheel":
 			return Color("FFE38A")
+		"higher-card":
+			return Color("7EB6FF")
+		"fruit-spin":
+			return Color("3DDC97")
+		"lucky-wheel":
+			return COL_GOLD
+		"prize-spinner":
+			return Color("8B7CFF")
+		"fishing":
+			return Color("3E8CA8")
+		"dice":
+			return Color("E8EEF8")
+		"lucky-number":
+			return Color("7EB6FF")
 		_:
 			return COL_GOLD
 

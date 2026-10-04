@@ -16,6 +16,12 @@ const envSchema = z.object({
   DEFAULT_PLAYER2_USERNAME: z.string().min(3).default("player2"),
   DEFAULT_PLAYER2_PASSWORD: z.string().min(8),
   STARTING_CREDITS: z.coerce.number().int().positive().default(500),
+  SUPER_ADMIN_USERNAME: z.string().min(3).default("superadmin"),
+  SUPER_ADMIN_PASSWORD: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(8).optional(),
+  ),
+  SUPER_ADMIN_CREDITS: z.coerce.number().int().nonnegative().default(1_000_000),
 });
 
 const parsed = envSchema.safeParse(process.env);

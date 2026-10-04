@@ -95,9 +95,3 @@ unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 3
 horizontal_alignment = 1
-
-[node name="SignupButton" type="Button" parent="Scroll/Column/Content"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 44)
-layout_mode = 2
-text = "Don't have an account? Sign Up"

@@ -56,6 +56,15 @@ const extras: Record<string, ParameterDef[]> = {
   "jackpot-wheel": [
     { key: "prizeBias", label: "Prize bias", min: 0, max: 15, step: 1, defaultValue: 0 },
   ],
+  "fruit-spin": [
+    { key: "prizeBias", label: "Prize bias", min: 0, max: 12, step: 1, defaultValue: 0 },
+  ],
+  "lucky-wheel": [
+    { key: "prizeBias", label: "Prize bias", min: 0, max: 12, step: 1, defaultValue: 0 },
+  ],
+  "prize-spinner": [
+    { key: "prizeBias", label: "Prize bias", min: 0, max: 12, step: 1, defaultValue: 0 },
+  ],
 };
 
 export function parametersForSlug(slug: string): ParameterDef[] {

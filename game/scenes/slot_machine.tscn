@@ -66,7 +66,8 @@ text = "Lucky Dollar"
 [node name="Difficulty" type="Label" parent="Scroll/Column/Content/Header/Heading"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Easy"
+visible = false
+text = ""
 
 [node name="BackButton" type="Button" parent="Scroll/Column/Content/Header"]
 unique_name_in_owner = true

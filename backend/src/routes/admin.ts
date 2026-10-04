@@ -7,33 +7,169 @@ import { requireRole } from "../middleware/requireRole";
 import { listCreditRequests, reviewCreditRequest } from "../services/creditRequestService";
 import { PROFILE_LEVELS } from "../services/gameParameters";
 import { findPlayerForControls, listPlayerGameProfiles, setPlayerGameProfile } from "../services/gameProfileService";
+import { getGameMode, setGameMode } from "../services/platformSettings";
+import { listGamesForAdmin, setGameActive } from "../services/slotService";
 import {
   adjustCredits,
+  createAdmin,
   createPlayer,
   findUserByEmail,
+  getAccountLedger,
+  getAdminOverview,
+  getPlayerHistory,
   getUser,
   listActivity,
   listPlayers,
+  listRecentPlays,
+  listStaff,
   listTransactions,
+  setPlayerGameMode,
+  setStaffActive,
   updatePlayer,
 } from "../services/userService";
 
 export const adminRouter = Router();
 
-adminRouter.use(authenticate, requireRole("ADMIN"));
+adminRouter.use(authenticate, requireRole("ADMIN", "SUPER_ADMIN"));
 
-const createSchema = z.object({
-  username: z
-    .string()
-    .trim()
-    .min(3)
-    .max(32)
-    .regex(/^[a-zA-Z0-9_]+$/, "Username can use letters, numbers, and underscores."),
-  email: z.string().trim().email("Enter a valid email."),
-  password: z.string().min(8, "Password must be at least 8 characters."),
-  displayName: z.string().trim().min(1).max(60),
-  startingCredits: z.number().int().min(0).max(1_000_000).default(0),
+adminRouter.get(
+  "/overview",
+  asyncHandler(async (req, res) => {
+    res.json(await getAdminOverview(req.authUser!.id));
+  }),
+);
+
+adminRouter.get(
+  "/staff",
+  requireRole("SUPER_ADMIN"),
+  asyncHandler(async (_req, res) => {
+    const admins = await listStaff();
+    res.json({ admins });
+  }),
+);
+
+const staffSchema = z
+  .object({
+    username: z
+      .string()
+      .trim()
+      .min(3, "Username must be at least 3 characters.")
+      .max(32)
+      .regex(/^[a-zA-Z0-9_]+$/, "Username can use letters, numbers, and underscores."),
+    email: z.string().trim().email("Enter a valid email."),
+    password: z.string().min(8, "Password must be at least 8 characters."),
+    confirmPassword: z.string().min(1, "Confirm your password."),
+    displayName: z.string().trim().min(1).max(60).optional(),
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    message: "Passwords do not match.",
+    path: ["confirmPassword"],
+  });
+
+adminRouter.post(
+  "/staff",
+  requireRole("SUPER_ADMIN"),
+  asyncHandler(async (req, res) => {
+    const body = parse(staffSchema, req.body);
+    const user = await createAdmin({
+      username: body.username,
+      email: body.email,
+      password: body.password,
+      displayName: body.displayName ?? body.username,
+      adminId: req.authUser!.id,
+    });
+    res.status(201).json({ user });
+  }),
+);
+
+const staffAccessSchema = z.object({
+  isActive: z.boolean(),
 });
+
+adminRouter.patch(
+  "/staff/:id/access",
+  requireRole("SUPER_ADMIN"),
+  asyncHandler(async (req, res) => {
+    const body = parse(staffAccessSchema, req.body);
+    const user = await setStaffActive(req.authUser!.id, param(req.params.id), body.isActive);
+    res.json({ user });
+  }),
+);
+
+adminRouter.get(
+  "/games",
+  asyncHandler(async (_req, res) => {
+    res.json({ games: await listGamesForAdmin() });
+  }),
+);
+
+adminRouter.get(
+  "/settings",
+  asyncHandler(async (_req, res) => {
+    res.json({
+      gameMode: await getGameMode(),
+      games: await listGamesForAdmin(),
+    });
+  }),
+);
+
+const modeSchema = z.object({
+  gameMode: z.enum(["EASY", "MEDIUM", "HARD"]),
+});
+
+adminRouter.put(
+  "/settings/mode",
+  asyncHandler(async (req, res) => {
+    const body = parse(modeSchema, req.body);
+    res.json({ gameMode: await setGameMode(body.gameMode) });
+  }),
+);
+
+const availabilitySchema = z.object({
+  isActive: z.boolean(),
+});
+
+adminRouter.patch(
+  "/games/:id",
+  asyncHandler(async (req, res) => {
+    const body = parse(availabilitySchema, req.body);
+    res.json({ game: await setGameActive(param(req.params.id), body.isActive) });
+  }),
+);
+
+adminRouter.get(
+  "/plays",
+  asyncHandler(async (_req, res) => {
+    res.json({ plays: await listRecentPlays(40) });
+  }),
+);
+
+const createSchema = z
+  .object({
+    username: z
+      .string()
+      .trim()
+      .min(3, "Username must be at least 3 characters.")
+      .max(32)
+      .regex(/^[a-zA-Z0-9_]+$/, "Username can use letters, numbers, and underscores."),
+    email: z.string().trim().email("Enter a valid email."),
+    password: z.string().min(8, "Password must be at least 8 characters."),
+    confirmPassword: z.string().min(1, "Confirm your password."),
+    displayName: z.string().trim().min(1).max(60).optional(),
+    startingCredits: z
+      .number()
+      .int("Starting credits must be a whole number.")
+      .min(0)
+      .max(1_000_000),
+    role: z.string().optional(),
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    message: "Passwords do not match.",
+    path: ["confirmPassword"],
+  })
+  .refine((value) => value.role === undefined || value.role === "PLAYER", {
+    message: "New accounts must be players.",
+  });
 
 const patchSchema = z
   .object({
@@ -45,8 +181,10 @@ const patchSchema = z
   });
 
 const creditSchema = z.object({
-  amount: z.number().int().positive("Enter a credit amount greater than 0."),
+  amount: z.number().int().positive("Enter a credit amount greater than 0.").max(1_000_000),
   action: z.enum(["add", "remove"]),
+  note: z.string().trim().max(200).optional(),
+  requestId: z.string().trim().min(8).max(80).optional(),
 });
 
 adminRouter.get(
@@ -81,6 +219,21 @@ adminRouter.get(
 );
 
 adminRouter.get(
+  "/users/:id/ledger",
+  requireRole("SUPER_ADMIN"),
+  asyncHandler(async (req, res) => {
+    res.json(await getAccountLedger(param(req.params.id)));
+  }),
+);
+
+adminRouter.get(
+  "/users/:id/history",
+  asyncHandler(async (req, res) => {
+    res.json(await getPlayerHistory(param(req.params.id)));
+  }),
+);
+
+adminRouter.get(
   "/users/:id",
   asyncHandler(async (req, res) => {
     res.json({ user: await getUser(param(req.params.id)) });
@@ -95,8 +248,8 @@ adminRouter.post(
       username: body.username,
       email: body.email,
       password: body.password,
-      displayName: body.displayName,
-      startingCredits: body.startingCredits ?? 0,
+      displayName: body.displayName ?? body.username,
+      startingCredits: body.startingCredits,
       adminId: req.authUser!.id,
     });
     res.status(201).json({ user });
@@ -112,6 +265,15 @@ adminRouter.patch(
   }),
 );
 
+adminRouter.patch(
+  "/users/:id/game-mode",
+  asyncHandler(async (req, res) => {
+    const body = parse(modeSchema, req.body);
+    const user = await setPlayerGameMode(param(req.params.id), req.authUser!.id, body.gameMode);
+    res.json({ user, message: "Game mode updated successfully." });
+  }),
+);
+
 adminRouter.post(
   "/users/:id/credits",
   asyncHandler(async (req, res) => {
@@ -121,6 +283,8 @@ adminRouter.post(
       adminId: req.authUser!.id,
       amount: body.amount,
       action: body.action,
+      note: body.note,
+      requestId: body.requestId,
     });
     res.json(result);
   }),

@@ -37,6 +37,10 @@ func set_mood(next_mood: String, next_tint: Color = tint) -> void:
 			_count = 16
 			_speed = 0.2
 			_paint(Color("071018"), Color("102033"), Color("3DDC97"), 0.22, 0.14)
+		"hub":
+			_count = 14
+			_speed = 0.14
+			_paint(Color("070B14"), Color("10182C"), Color("7EB6FF"), 0.24, 0.12)
 		"game":
 			_count = 18
 			_speed = 0.24
@@ -84,11 +88,11 @@ func _draw() -> void:
 	draw_line(Vector2(0, streak_y), Vector2(size.x, streak_y + 18.0), Color(0.55, 0.65, 1.0, 0.045), 2.0)
 
 
-func _paint(top: Color, bottom: Color, glow: Color, strength: float, scale: float) -> void:
+func _paint(top: Color, bottom: Color, glow: Color, strength: float, visual_scale: float) -> void:
 	if _shader == null:
 		return
 	_shader.set_shader_parameter("color_top", top)
 	_shader.set_shader_parameter("color_bottom", bottom)
 	_shader.set_shader_parameter("glow_color", glow)
 	_shader.set_shader_parameter("glow_strength", strength)
-	_shader.set_shader_parameter("time_scale", scale)
+	_shader.set_shader_parameter("time_scale", visual_scale)
