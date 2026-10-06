@@ -40,58 +40,93 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 horizontal_scroll_mode = 0
+follow_focus = true
 
 [node name="Column" type="MarginContainer" parent="Scroll"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
+size_flags_vertical = 3
 
 [node name="Content" type="VBoxContainer" parent="Scroll/Column"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 14
+size_flags_vertical = 3
+theme_override_constants/separation = 0
+alignment = 1
+
+[node name="TopSpacer" type="Control" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
 
 [node name="Title" type="Label" parent="Scroll/Column/Content"]
 unique_name_in_owner = true
+visible = false
 layout_mode = 2
 text = "DOLLAR MANIA"
-horizontal_alignment = 1
-
-[node name="Welcome" type="Label" parent="Scroll/Column/Content"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Welcome back"
 horizontal_alignment = 1
 
 [node name="Card" type="PanelContainer" parent="Scroll/Column/Content"]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 0
 
-[node name="CardBox" type="VBoxContainer" parent="Scroll/Column/Content/Card"]
+[node name="CardPad" type="MarginContainer" parent="Scroll/Column/Content/Card"]
 layout_mode = 2
-theme_override_constants/separation = 12
+theme_override_constants/margin_left = 22
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 22
+theme_override_constants/margin_bottom = 24
 
-[node name="Username" type="LineEdit" parent="Scroll/Column/Content/Card/CardBox"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 50)
+[node name="CardBox" type="VBoxContainer" parent="Scroll/Column/Content/Card/CardPad"]
 layout_mode = 2
-placeholder_text = "Username"
+theme_override_constants/separation = 14
 
-[node name="Password" type="LineEdit" parent="Scroll/Column/Content/Card/CardBox"]
+[node name="Welcome" type="Label" parent="Scroll/Column/Content/Card/CardPad/CardBox"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+text = "Welcome back"
+horizontal_alignment = 1
+
+[node name="Hint" type="Label" parent="Scroll/Column/Content/Card/CardPad/CardBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Sign in with your player or admin account"
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="Username" type="LineEdit" parent="Scroll/Column/Content/Card/CardPad/CardBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
+layout_mode = 2
+placeholder_text = "Username or email"
+
+[node name="Password" type="LineEdit" parent="Scroll/Column/Content/Card/CardPad/CardBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 54)
 layout_mode = 2
 placeholder_text = "Password"
 secret = true
 
-[node name="LoginButton" type="Button" parent="Scroll/Column/Content/Card/CardBox"]
+[node name="LoginButton" type="Button" parent="Scroll/Column/Content/Card/CardPad/CardBox"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 54)
+custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
 text = "Login"
 
-[node name="ErrorLabel" type="Label" parent="Scroll/Column/Content/Card/CardBox"]
+[node name="ErrorLabel" type="Label" parent="Scroll/Column/Content/Card/CardPad/CardBox"]
 unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 3
 horizontal_alignment = 1
+
+[node name="BottomSpacer" type="Control" parent="Scroll/Column/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2

@@ -3,6 +3,7 @@ import { pool, withTransaction } from "../db";
 import { AppError } from "../errors";
 import { resolveRound } from "./gamePlay";
 import { getAssignedTuning } from "./gameProfileService";
+import { assertPlayerCanPlayGame, getDisabledGameIds } from "./playerGameAccessService";
 
 export type SlotGame = {
   id: string;
@@ -40,10 +41,24 @@ export async function listActiveGames(): Promise<SlotGame[]> {
        WHEN 'fishing' THEN 16
        WHEN 'dice' THEN 17
        WHEN 'lucky-number' THEN 18
+       WHEN 'diamond-spin' THEN 19
+       WHEN 'mystery-box' THEN 20
+       WHEN 'target-blast' THEN 21
+       WHEN 'aeroplane-rush' THEN 22
+       WHEN 'bottle-blast' THEN 23
        ELSE 100
      END, name ASC`,
   );
   return result.rows.map(mapGame);
+}
+
+export async function listGamesForPlayer(userId: string): Promise<Array<SlotGame & { enabled: boolean }>> {
+  const games = await listActiveGames();
+  const disabled = await getDisabledGameIds(userId);
+  return games.map((game) => ({
+    ...game,
+    enabled: !disabled.has(game.id),
+  }));
 }
 
 export async function setGameActive(gameKey: string, isActive: boolean): Promise<SlotGame> {
@@ -87,6 +102,11 @@ export async function listGamesForAdmin(): Promise<Array<SlotGame & { spins: num
        WHEN 'fishing' THEN 16
        WHEN 'dice' THEN 17
        WHEN 'lucky-number' THEN 18
+       WHEN 'diamond-spin' THEN 19
+       WHEN 'mystery-box' THEN 20
+       WHEN 'target-blast' THEN 21
+       WHEN 'aeroplane-rush' THEN 22
+       WHEN 'bottle-blast' THEN 23
        ELSE 100
      END, g.name ASC`,
   );
@@ -165,6 +185,7 @@ async function completeSpin(userId: string, gameId: string, betAmount: number, c
       throw new AppError(404, "That game is not available.");
     }
     const game = mapGame(gameRow);
+    await assertPlayerCanPlayGame(client, userId, game.id);
     if (betAmount < game.minimumBet) {
       throw new AppError(400, "Bet is below the minimum.");
     }

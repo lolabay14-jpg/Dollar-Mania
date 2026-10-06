@@ -73,6 +73,20 @@ func get_current_user() -> Dictionary:
 	return response
 
 
+func change_password(current_password: String, new_password: String, confirm_password: String) -> Dictionary:
+	var response := await _request(HTTPClient.METHOD_POST, "/api/auth/change-password", {
+		"currentPassword": current_password,
+		"newPassword": new_password,
+		"confirmPassword": confirm_password,
+	})
+	if response.ok:
+		var token := str(response.data.get("token", ""))
+		if token != "":
+			_token = token
+			_save_session()
+	return response
+
+
 func get_player_profile() -> Dictionary:
 	return await _request(HTTPClient.METHOD_GET, "/api/player/profile")
 
@@ -116,23 +130,47 @@ func _refresh_games() -> Dictionary:
 	return response
 
 
-func request_credits(amount: int) -> Dictionary:
-	return await _request(HTTPClient.METHOD_POST, "/api/player/credit-requests", {"amount": amount})
+func request_credits(amount: int, note := "") -> Dictionary:
+	var body := {"amount": amount}
+	if note.strip_edges() != "":
+		body["note"] = note.strip_edges()
+	return await _request(HTTPClient.METHOD_POST, "/api/player/credit-requests", body)
+
+
+func admin_request_credits(amount: int, note := "") -> Dictionary:
+	var body := {"amount": amount}
+	if note.strip_edges() != "":
+		body["note"] = note.strip_edges()
+	return await _request(HTTPClient.METHOD_POST, "/api/admin/credit-requests", body)
+
+
+func admin_own_credit_requests() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/credit-requests/own")
 
 
 func my_credit_requests() -> Dictionary:
 	return await _request(HTTPClient.METHOD_GET, "/api/player/credit-requests")
 
 
-func admin_credit_requests() -> Dictionary:
-	return await _request(HTTPClient.METHOD_GET, "/api/admin/credit-requests")
+func admin_credit_requests(status := "ALL") -> Dictionary:
+	var path := "/api/admin/credit-requests"
+	if status != "" and status != "ALL":
+		path = "%s?status=%s" % [path, status.uri_encode()]
+	return await _request(HTTPClient.METHOD_GET, path)
 
 
-func admin_review_request(request_id: String, action: String) -> Dictionary:
+func admin_pending_credit_count() -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/credit-requests/pending-count")
+
+
+func admin_review_request(request_id: String, action: String, note := "") -> Dictionary:
+	var body := {"action": action}
+	if note.strip_edges() != "":
+		body["note"] = note.strip_edges()
 	return await _request(
 		HTTPClient.METHOD_POST,
 		"/api/admin/credit-requests/%s/review" % request_id.uri_encode(),
-		{"action": action}
+		body
 	)
 
 
@@ -252,6 +290,33 @@ func admin_set_game_profile(user_id: String, game_id: String, profile: String, p
 		HTTPClient.METHOD_PUT,
 		"/api/admin/users/%s/game-profiles/%s" % [user_id.uri_encode(), game_id.uri_encode()],
 		{"profile": profile, "parameters": parameters}
+	)
+
+
+func admin_search_game_access(query: String) -> Dictionary:
+	return await _request(
+		HTTPClient.METHOD_GET,
+		"/api/admin/game-access/search?q=%s" % query.strip_edges().uri_encode()
+	)
+
+
+func admin_player_game_access(user_id: String) -> Dictionary:
+	return await _request(HTTPClient.METHOD_GET, "/api/admin/users/%s/game-access" % user_id.uri_encode())
+
+
+func admin_set_player_game_access(user_id: String, game_id: String, enabled: bool) -> Dictionary:
+	return await _request(
+		HTTPClient.METHOD_PUT,
+		"/api/admin/users/%s/game-access/%s" % [user_id.uri_encode(), game_id.uri_encode()],
+		{"enabled": enabled}
+	)
+
+
+func admin_set_all_player_game_access(user_id: String, enabled: bool) -> Dictionary:
+	return await _request(
+		HTTPClient.METHOD_PUT,
+		"/api/admin/users/%s/game-access" % user_id.uri_encode(),
+		{"enabled": enabled}
 	)
 
 

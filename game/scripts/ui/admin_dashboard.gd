@@ -1,14 +1,13 @@
 extends Control
 
 const NAV := [
-	["overview", "Dashboard"],
+	["overview", "Overview"],
 	["players", "Players"],
-	["create", "Create Player"],
-	["games", "Games"],
-	["transactions", "Transactions"],
 	["requests", "Credit Requests"],
+	["games", "Games"],
 	["activity", "Game Activity"],
-	["settings", "Settings"],
+	["transactions", "Transactions"],
+	["settings", "Profile"],
 ]
 
 var _section := "overview"
@@ -17,6 +16,7 @@ var _players: Array = []
 var _games: Array = []
 var _transactions: Array = []
 var _requests: Array = []
+var _own_requests: Array = []
 var _activity: Array = []
 var _plays: Array = []
 var _overview: Dictionary = {}
@@ -37,13 +37,25 @@ var _dialog: Control
 var _search_email: LineEdit
 var _detail_player: Dictionary = {}
 var _layout := -1
-
+var _fund_amount: LineEdit
+var _fund_note: LineEdit
+var _fund_feedback: Label
+var _fund_busy := false
+var _pending_count := 0
+var _notify_panel: Control
+var _poll: Timer
 
 func _ready() -> void:
 	UiTheme.apply(self)
 	$Background.color = UiTheme.COL_BG
-	UiTheme.mood(self, "calm")
+	ArcadeBackdrop.mount_photo(self, GameArt.screen_path("dashboard"), 0.72, 0.14)
+	UiTheme.mood(self, "hub")
 	_build_shell()
+	_poll = Timer.new()
+	_poll.wait_time = 12.0
+	_poll.autostart = true
+	_poll.timeout.connect(_poll_requests)
+	add_child(_poll)
 	resized.connect(_fit)
 	_fit()
 	_show_section("overview")
@@ -104,7 +116,7 @@ func _build_shell() -> void:
 	actions.add_theme_constant_override("v_separation", 8)
 	header.add_child(actions)
 	_alerts = _compact_button("Notifications", "")
-	_alerts.pressed.connect(_show_section.bind("requests"))
+	_alerts.pressed.connect(_open_notifications)
 	actions.add_child(_alerts)
 	var profile := _compact_button("Profile", "")
 	profile.pressed.connect(_show_section.bind("settings"))
@@ -163,6 +175,7 @@ func _load_all() -> void:
 	var games_response: Dictionary = await ApiClient.admin_games()
 	var transactions_response: Dictionary = await ApiClient.admin_transactions()
 	var requests_response: Dictionary = await ApiClient.admin_credit_requests()
+	var own_requests_response: Dictionary = await ApiClient.admin_own_credit_requests()
 	var activity_response: Dictionary = await ApiClient.admin_activity()
 	var plays_response: Dictionary = await ApiClient.admin_plays()
 	if not is_inside_tree():
@@ -170,9 +183,15 @@ func _load_all() -> void:
 	if token != _token and _section == "detail":
 		_loaded = true
 		_store_dashboard(overview_response, users_response, games_response, transactions_response, requests_response, activity_response, plays_response)
+		if own_requests_response.ok:
+			_own_requests = own_requests_response.data.get("requests", [])
 		return
 	_loaded = true
 	_store_dashboard(overview_response, users_response, games_response, transactions_response, requests_response, activity_response, plays_response)
+	if own_requests_response.ok:
+		_own_requests = own_requests_response.data.get("requests", [])
+	else:
+		_own_requests = []
 	if not overview_response.ok and not users_response.ok:
 		push_error("Admin dashboard failed. HTTP %d. %s" % [int(overview_response.get("status", 0)), str(overview_response.get("error", ""))])
 		_set_feedback("The dashboard could not be loaded.", true)
@@ -208,7 +227,13 @@ func _store_dashboard(
 	if transactions_response.ok:
 		_transactions = transactions_response.data.get("transactions", [])
 	if requests_response.ok:
-		_requests = requests_response.data.get("requests", [])
+		var rows: Variant = requests_response.data.get("requests", [])
+		_requests = rows if rows is Array else []
+		_pending_count = int(requests_response.data.get("pendingCount", _count_pending_local()))
+	else:
+		_requests = []
+	if overview_response.ok:
+		_pending_count = int(_overview.get("pendingPlayerRequests", _pending_count))
 	if activity_response.ok:
 		_activity = activity_response.data.get("activity", [])
 	if plays_response.ok:
@@ -219,6 +244,11 @@ func _show_section(section: String) -> void:
 	_section = section
 	_token += 1
 	_detail_player = {}
+	_close_notifications()
+	if section == "requests":
+		_paint_section()
+		_refresh_request_lists()
+		return
 	_paint_section()
 
 
@@ -232,7 +262,6 @@ func _paint_section() -> void:
 			_render_overview()
 		"players":
 			_render_players()
-		"create":
 			_render_create()
 		"games":
 			_render_games()
@@ -240,6 +269,7 @@ func _paint_section() -> void:
 			_render_transactions()
 		"requests":
 			_render_requests()
+			_render_fund()
 		"activity":
 			_render_activity()
 		"settings":
@@ -296,11 +326,16 @@ func _render_overview() -> void:
 	grid.add_child(_stat_card("Y", "Your credits", _grouped(mine), "Available to recharge players"))
 	grid.add_child(_stat_card("S", "Played", _grouped(spins), "Recorded spins"))
 	grid.add_child(_stat_card("G", "Catalog", _grouped(games), "Games available"))
+	var pending := int(_overview.get("pendingPlayerRequests", _pending_count))
+	if pending <= 0:
+		pending = _count_pending_local()
+	_pending_count = pending
+	grid.add_child(_stat_card("R", "Requests", _grouped(pending), "Player credit requests pending"))
 	var active_games := 0
 	for game in _games:
 		if game is Dictionary and bool(game.get("isActive", false)):
 			active_games += 1
-	var manage := _section_box("Game management", "Manage games", "settings")
+	var manage := _section_box("Game management", "Manage games", "games")
 	manage.add_child(_detail_line("Games available", "%d / %d" % [active_games, _games.size()]))
 	manage.add_child(_detail_line("Game mode", "Assigned on each player"))
 	var players_box := _section_box("Recent players", "View all", "players")
@@ -526,8 +561,8 @@ func _validate_player(username: String, email: String, password: String, confirm
 		return "Enter a valid email."
 	if password == "":
 		return "Password is required."
-	if password.length() < 8:
-		return "Password must be at least 8 characters."
+	if password.length() < 4:
+		return "Password must be at least 4 characters."
 	if confirm == "":
 		return "Confirm your password."
 	if password != confirm:
@@ -621,9 +656,11 @@ func _render_requests() -> void:
 		var loading := _section_box("Credit requests", "", "")
 		loading.add_child(_empty_state("Loading credit requests", "Fetching pending requests."))
 		return
+	var pending := _count_pending_local()
+	var summary := _section_box("Player credit requests", "", "")
+	summary.add_child(_muted("%d pending · %d total" % [pending, _requests.size()]))
 	if _requests.is_empty():
-		var empty := _section_box("Credit requests", "", "")
-		empty.add_child(_empty_state("No credit requests", "Players have not requested credits."))
+		summary.add_child(_empty_state("No pending credit requests", "Players have not requested credits."))
 		return
 	for item in _requests:
 		if item is Dictionary:
@@ -635,10 +672,16 @@ func _request_card(item: Dictionary) -> void:
 	box.add_theme_constant_override("separation", 12)
 	var status := str(item.get("status", ""))
 	var title := Label.new()
-	title.text = "%s    %s credits" % [str(item.get("username", "Player")), str(int(item.get("amount", 0)))]
+	title.text = str(item.get("username", "Player"))
 	title.add_theme_font_size_override("font_size", 20)
 	box.add_child(title)
-	box.add_child(_muted("%s  ·  %s" % [status, _date(str(item.get("createdAt", "")))]))
+	box.add_child(_muted(str(item.get("email", ""))))
+	box.add_child(_muted("Current Credits: %s" % _grouped(int(item.get("balance", 0)))))
+	box.add_child(_muted("Requested: %s" % _grouped(int(item.get("amount", 0)))))
+	var note := str(item.get("requestNote", ""))
+	if note != "":
+		box.add_child(_muted("Note: %s" % note))
+	box.add_child(_muted("Date: %s   ·   Status: %s" % [_date(str(item.get("createdAt", ""))), status]))
 	if status == "PENDING":
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
@@ -653,6 +696,84 @@ func _request_card(item: Dictionary) -> void:
 		row.add_child(reject)
 
 
+func _render_fund() -> void:
+	var box := _form_box()
+	box.add_theme_constant_override("separation", 12)
+	var heading := Label.new()
+	heading.text = "Request credits from Super Admin"
+	heading.add_theme_font_size_override("font_size", 22)
+	box.add_child(heading)
+	var mine := int(_overview.get("myBalance", 0))
+	var balance := Label.new()
+	balance.text = "Current credits: %s" % _grouped(mine)
+	balance.add_theme_font_size_override("font_size", 24)
+	balance.add_theme_color_override("font_color", UiTheme.COL_GOLD)
+	box.add_child(balance)
+	box.add_child(_muted("You cannot approve your own request. Super Admin reviews these."))
+	_fund_amount = LineEdit.new()
+	_fund_amount.placeholder_text = "Requested amount"
+	_fund_amount.custom_minimum_size = Vector2(0, 48)
+	box.add_child(_fund_amount)
+	_fund_note = LineEdit.new()
+	_fund_note.placeholder_text = "Optional note"
+	_fund_note.custom_minimum_size = Vector2(0, 48)
+	box.add_child(_fund_note)
+	var send := _button("Request Credits", "PrimaryButton")
+	send.pressed.connect(_submit_admin_fund)
+	box.add_child(send)
+	_fund_feedback = Label.new()
+	_fund_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiTheme.style_muted(_fund_feedback)
+	box.add_child(_fund_feedback)
+	var history := _section_box("Your request history", "", "")
+	if _own_requests.is_empty():
+		history.add_child(_empty_state("No requests yet", "Your super-admin credit requests will appear here."))
+		return
+	for item in _own_requests:
+		if not item is Dictionary:
+			continue
+		var row := Label.new()
+		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.text = "%s   ·   %s credits   ·   %s" % [
+			str(item.get("status", "")),
+			str(int(item.get("amount", 0))),
+			_date(str(item.get("createdAt", ""))),
+		]
+		history.add_child(row)
+
+
+func _submit_admin_fund() -> void:
+	if _fund_busy or _fund_amount == null:
+		return
+	var amount := int(_fund_amount.text.strip_edges())
+	if amount <= 0:
+		_fund_feedback.text = "Enter a valid amount."
+		_fund_feedback.add_theme_color_override("font_color", UiTheme.COL_DANGER)
+		return
+	_fund_busy = true
+	_fund_feedback.text = "Sending..."
+	_fund_feedback.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+	var note := ""
+	if _fund_note:
+		note = _fund_note.text.strip_edges()
+	var response: Dictionary = await ApiClient.admin_request_credits(amount, note)
+	_fund_busy = false
+	if not is_inside_tree():
+		return
+	if response.ok:
+		_fund_feedback.text = "Request sent to Super Admin."
+		_fund_feedback.add_theme_color_override("font_color", UiTheme.COL_GREEN)
+		_fund_amount.text = ""
+		if _fund_note:
+			_fund_note.text = ""
+		await _load_all()
+		if _section == "requests":
+			_paint_section()
+	else:
+		_fund_feedback.text = str(response.error)
+		_fund_feedback.add_theme_color_override("font_color", UiTheme.COL_DANGER)
+
+
 func _render_activity() -> void:
 	if not _loaded:
 		var loading := _section_box("Game activity", "", "")
@@ -665,21 +786,65 @@ func _render_activity() -> void:
 
 
 func _render_settings() -> void:
-	var box := _form_box()
-	box.add_child(_muted("Signed in as %s  ·  ADMIN" % ApiClient.username()))
-	box.add_child(_muted("Players sign in with accounts you create. Credits are virtual and cannot be cashed out."))
+	var sub := "account"
+	var shell := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.06, 0.08, 0.14, 0.94)
+	style.border_color = Color(UiTheme.COL_GOLD, 0.35)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(14)
+	style.content_margin_left = 4
+	style.content_margin_right = 4
+	style.content_margin_top = 4
+	style.content_margin_bottom = 4
+	shell.add_theme_stylebox_override("panel", style)
+	_page.add_child(shell)
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 4)
+	shell.add_child(tabs)
+	var account_host := _form_box()
+	var security_host := _form_box()
+	var account_panel := account_host.get_parent().get_parent() as CanvasItem
+	var security_panel := security_host.get_parent().get_parent() as CanvasItem
+	if security_panel:
+		security_panel.visible = false
+	var paint_tab := func(selected: String) -> void:
+		for child in tabs.get_children():
+			if child is Button:
+				var button := child as Button
+				var on := str(button.get_meta("sub", "")) == selected
+				button.theme_type_variation = "SelectedButton" if on else ""
+				button.set_pressed_no_signal(on)
+		if account_panel:
+			account_panel.visible = selected == "account"
+		if security_panel:
+			security_panel.visible = selected == "security"
+	for item in [["account", "Account"], ["security", "Security"]]:
+		var button := _button(str(item[1]), "SelectedButton" if str(item[0]) == sub else "")
+		button.toggle_mode = true
+		button.set_meta("sub", str(item[0]))
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.pressed.connect(func() -> void: paint_tab.call(str(item[0])))
+		tabs.add_child(button)
+	account_host.add_child(_heading("Account"))
+	account_host.add_child(_muted("Signed in as %s  ·  ADMIN" % ApiClient.username()))
+	account_host.add_child(_muted("Players sign in with accounts you create. Credits are virtual and cannot be cashed out."))
 	var sound := CheckBox.new()
 	sound.text = "Sound"
 	sound.button_pressed = AppState.sound_enabled
 	sound.custom_minimum_size.y = 48
 	sound.toggled.connect(func(on: bool) -> void: AppState.sound_enabled = on)
-	box.add_child(sound)
+	account_host.add_child(sound)
 	var music := CheckBox.new()
 	music.text = "Music"
 	music.button_pressed = AppState.music_enabled
 	music.custom_minimum_size.y = 48
 	music.toggled.connect(func(on: bool) -> void: AppState.music_enabled = on)
-	box.add_child(music)
+	account_host.add_child(music)
+	var logout := _button("Logout", "DangerButton")
+	logout.pressed.connect(_logout)
+	account_host.add_child(logout)
+	_mount_password_card(security_host)
 	var games_box := _form_box()
 	games_box.add_child(_muted("Loading game settings..."))
 	var response: Dictionary = await ApiClient.admin_platform_settings()
@@ -692,11 +857,10 @@ func _render_settings() -> void:
 		games_box.add_child(_empty_state("Unable to load game settings", "Try again in a moment."))
 		return
 	var heading := Label.new()
-	heading.text = "Game settings"
+	heading.text = "Game availability"
 	heading.add_theme_font_size_override("font_size", 20)
 	games_box.add_child(heading)
 	games_box.add_child(_muted("Game mode is assigned on each player's page. Players never see it."))
-	games_box.add_child(_muted("Game availability"))
 	var games_value: Variant = response.data.get("games", [])
 	var games: Array = games_value if games_value is Array else []
 	for game in games:
@@ -709,6 +873,52 @@ func _render_settings() -> void:
 		var game_id := str(game.get("id", ""))
 		toggle.toggled.connect(_set_game_active.bind(game_id, toggle))
 		games_box.add_child(toggle)
+
+
+func _mount_password_card(host: VBoxContainer) -> void:
+	var title := Label.new()
+	title.text = "Change Password"
+	title.add_theme_font_size_override("font_size", 20)
+	host.add_child(title)
+	host.add_child(_muted("Change the password for your own authenticated account only."))
+	var current := _field("Current Password", true)
+	var next := _field("New Password (min 4 characters)", true)
+	var confirm := _field("Confirm New Password", true)
+	var feedback := _muted("")
+	var submit := _button("Change Password", "PrimaryButton")
+	host.add_child(current)
+	host.add_child(next)
+	host.add_child(confirm)
+	host.add_child(submit)
+	host.add_child(feedback)
+	submit.pressed.connect(func() -> void:
+		if current.text == "":
+			feedback.text = "Enter your current password."
+			feedback.add_theme_color_override("font_color", UiTheme.COL_DANGER)
+			return
+		if next.text.length() < 4:
+			feedback.text = "New password must be at least 4 characters."
+			feedback.add_theme_color_override("font_color", UiTheme.COL_DANGER)
+			return
+		if next.text != confirm.text:
+			feedback.text = "New password and confirmation do not match."
+			feedback.add_theme_color_override("font_color", UiTheme.COL_DANGER)
+			return
+		feedback.text = "Updating password..."
+		feedback.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+		var response: Dictionary = await ApiClient.change_password(current.text, next.text, confirm.text)
+		if not is_inside_tree():
+			return
+		if response.ok:
+			current.text = ""
+			next.text = ""
+			confirm.text = ""
+			feedback.text = "Password updated successfully."
+			feedback.add_theme_color_override("font_color", UiTheme.COL_GREEN)
+		else:
+			feedback.text = str(response.error)
+			feedback.add_theme_color_override("font_color", UiTheme.COL_DANGER)
+	)
 
 
 func _set_game_active(active: bool, game_id: String, toggle: CheckBox) -> void:
@@ -1400,11 +1610,120 @@ func _skeleton_row() -> GridContainer:
 func _refresh_alerts() -> void:
 	if _alerts == null:
 		return
+	_pending_count = maxi(_pending_count, 0)
+	if _pending_count <= 0:
+		_pending_count = _count_pending_local()
+	_alerts.text = "Notifications" if _pending_count == 0 else "Notifications  %d" % _pending_count
+
+
+func _count_pending_local() -> int:
 	var pending := 0
 	for item in _requests:
 		if item is Dictionary and str(item.get("status", "")) == "PENDING":
 			pending += 1
-	_alerts.text = "Notifications" if pending == 0 else "Notifications  %d" % pending
+	return pending
+
+
+func _poll_requests() -> void:
+	if not is_inside_tree() or _busy:
+		return
+	var count_response: Dictionary = await ApiClient.admin_pending_credit_count()
+	if not is_inside_tree():
+		return
+	if count_response.ok:
+		_pending_count = int(count_response.data.get("pendingCount", 0))
+		_refresh_alerts()
+	if _section == "requests":
+		await _refresh_request_lists()
+
+
+func _refresh_request_lists() -> void:
+	var requests_response: Dictionary = await ApiClient.admin_credit_requests()
+	if not is_inside_tree():
+		return
+	if requests_response.ok:
+		var rows: Variant = requests_response.data.get("requests", [])
+		_requests = rows if rows is Array else []
+		_pending_count = int(requests_response.data.get("pendingCount", _count_pending_local()))
+	var own_response: Dictionary = await ApiClient.admin_own_credit_requests()
+	if is_inside_tree() and own_response.ok:
+		var own_rows: Variant = own_response.data.get("requests", [])
+		_own_requests = own_rows if own_rows is Array else []
+	_refresh_alerts()
+	if _section == "requests":
+		_paint_section()
+
+
+func _open_notifications() -> void:
+	_close_notifications()
+	var response: Dictionary = await ApiClient.admin_credit_requests("PENDING")
+	if not is_inside_tree():
+		return
+	var pending_rows: Array = []
+	if response.ok:
+		var rows: Variant = response.data.get("requests", [])
+		pending_rows = rows if rows is Array else []
+		_pending_count = int(response.data.get("pendingCount", pending_rows.size()))
+		_refresh_alerts()
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+			_close_notifications()
+	)
+	add_child(dim)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(mini(size.x - 32.0, 420.0), 0)
+	UiTheme.paint_glass(panel)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(center)
+	center.add_child(panel)
+	_notify_panel = dim
+	dim.set_meta("center", center)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	panel.add_child(_pad(box, 18))
+	var title := Label.new()
+	title.text = "Credit Requests"
+	UiTheme.style_title(title, 22)
+	box.add_child(title)
+	if pending_rows.is_empty():
+		box.add_child(_muted("No new credit requests"))
+	else:
+		for item in pending_rows:
+			if not item is Dictionary:
+				continue
+			var line := Label.new()
+			line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			line.text = "%s requested %s credits" % [
+				str(item.get("username", "Player")),
+				_grouped(int(item.get("amount", 0))),
+			]
+			box.add_child(line)
+	var view := _button("View Requests", "PrimaryButton")
+	view.pressed.connect(func() -> void:
+		_close_notifications()
+		_show_section("requests")
+	)
+	box.add_child(view)
+	var close := _button("Close", "")
+	close.pressed.connect(_close_notifications)
+	box.add_child(close)
+
+
+func _close_notifications() -> void:
+	if _notify_panel == null:
+		return
+	var center: Node = _notify_panel.get_meta("center", null)
+	if center and is_instance_valid(center):
+		center.queue_free()
+	if is_instance_valid(_notify_panel):
+		_notify_panel.queue_free()
+	_notify_panel = null
 
 
 func _admin_name() -> String:

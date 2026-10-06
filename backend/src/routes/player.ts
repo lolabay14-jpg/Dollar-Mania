@@ -5,7 +5,7 @@ import { asyncHandler } from "../middleware/asyncHandler";
 import { authenticate } from "../middleware/authenticate";
 import { requireRole } from "../middleware/requireRole";
 import { createCreditRequest, listOwnCreditRequests } from "../services/creditRequestService";
-import { listActiveGames } from "../services/slotService";
+import { listGamesForPlayer } from "../services/slotService";
 import { getOwnProfile, getOwnSpins, getOwnTransactions, getOwnWallet } from "../services/userService";
 
 export const playerRouter = Router();
@@ -42,13 +42,14 @@ playerRouter.get(
 
 playerRouter.get(
   "/games",
-  asyncHandler(async (_req, res) => {
-    res.json({ games: await listActiveGames() });
+  asyncHandler(async (req, res) => {
+    res.json({ games: await listGamesForPlayer(req.authUser!.id) });
   }),
 );
 
 const requestSchema = z.object({
   amount: z.number().int().positive("Enter a credit amount.").max(100_000),
+  note: z.string().trim().max(200).optional(),
 });
 
 playerRouter.get(
@@ -65,7 +66,7 @@ playerRouter.post(
     if (!parsed.success) {
       throw new AppError(400, parsed.error.issues[0]?.message ?? "Enter a credit amount.");
     }
-    const request = await createCreditRequest(req.authUser!.id, parsed.data.amount);
+    const request = await createCreditRequest(req.authUser!.id, parsed.data.amount, parsed.data.note ?? "");
     res.status(201).json({ request });
   }),
 );

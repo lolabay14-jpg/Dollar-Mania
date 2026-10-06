@@ -12,7 +12,11 @@ var _clock := 0.0
 func _ready() -> void:
 	UiTheme.apply(self)
 	$Background.color = UiTheme.COL_BG
+	# Soften baked-in artwork text; keep functional splash labels only.
+	ArcadeBackdrop.mount_photo(self, GameArt.screen_path("splash"), 0.48, 0.16)
 	UiTheme.mood(self, "cinematic")
+	if has_node("Dust"):
+		$Dust.modulate = Color(1, 1, 1, 0.55)
 	UiTheme.style_title(%Title, 48)
 	%Title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	UiTheme.style_muted(%Tagline)

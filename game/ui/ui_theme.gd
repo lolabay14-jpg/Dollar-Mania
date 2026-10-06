@@ -70,7 +70,17 @@ static func game_accent(slug: String) -> Color:
 		"prize-spinner":
 			return Color("8B7CFF")
 		"fishing":
-			return Color("3E8CA8")
+			return Color("3EC6E0")
+		"diamond-spin":
+			return Color("8B7CFF")
+		"mystery-box":
+			return Color("E2B15C")
+		"target-blast":
+			return Color("FF7A59")
+		"aeroplane-rush":
+			return Color("7EB6FF")
+		"bottle-blast":
+			return Color("C9A6FF")
 		"dice":
 			return Color("E8EEF8")
 		"lucky-number":
@@ -81,10 +91,11 @@ static func game_accent(slug: String) -> Color:
 
 static func paint_glass(panel: PanelContainer, invalid := false) -> void:
 	var border := COL_DANGER if invalid else Color(COL_GOLD, 0.38)
-	var box := _flat(Color(0.06, 0.09, 0.16, 0.84), border, 22, 1, 18, 16)
-	box.shadow_color = Color(0, 0, 0, 0.38)
-	box.shadow_size = 18
-	box.shadow_offset = Vector2(0, 10)
+	# Keep glass translucent so full-screen backgrounds remain visible.
+	var box := _flat(Color(0.06, 0.09, 0.16, 0.72), border, 22, 1, 18, 16)
+	box.shadow_color = Color(0, 0, 0, 0.32)
+	box.shadow_size = 16
+	box.shadow_offset = Vector2(0, 8)
 	panel.add_theme_stylebox_override("panel", box)
 
 

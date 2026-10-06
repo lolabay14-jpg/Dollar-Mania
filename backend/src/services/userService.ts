@@ -314,11 +314,20 @@ export async function getAdminOverview(userId: string) {
     [userId],
   );
   const row = counts.rows[0];
-  const [recentTransactions, recentActivity, recentPlays] = await Promise.all([
+  const [recentTransactions, recentActivity, recentPlays, pendingRows] = await Promise.all([
     listTransactions(8),
     listActivity(8),
     listRecentPlays(8),
+    pool.query<{ player_requests: number; admin_requests: number }>(
+      `SELECT
+         COUNT(*) FILTER (WHERE u.role = 'PLAYER')::int AS player_requests,
+         COUNT(*) FILTER (WHERE u.role = 'ADMIN')::int AS admin_requests
+       FROM credit_requests r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.status = 'PENDING'`,
+    ),
   ]);
+  const pending = pendingRows.rows[0];
   return {
     totalPlayers: Number(row?.total_players ?? 0),
     activePlayers: Number(row?.active_players ?? 0),
@@ -335,6 +344,8 @@ export async function getAdminOverview(userId: string) {
     recentTransactions,
     recentActivity,
     recentPlays,
+    pendingPlayerRequests: Number(pending?.player_requests ?? 0),
+    pendingAdminRequests: Number(pending?.admin_requests ?? 0),
   };
 }
 

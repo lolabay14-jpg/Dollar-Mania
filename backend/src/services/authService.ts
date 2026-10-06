@@ -99,3 +99,32 @@ export async function login(username: string, password: string) {
     token,
   };
 }
+
+export async function changePassword(userId: string, currentPassword: string, newPassword: string) {
+  const result = await pool.query<{ id: string; password_hash: string }>(
+    "SELECT id, password_hash FROM users WHERE id = $1",
+    [userId],
+  );
+  const user = result.rows[0];
+  if (!user) {
+    throw new AppError(404, "Account not found.");
+  }
+  const matches = await bcrypt.compare(currentPassword, user.password_hash);
+  if (!matches) {
+    throw new AppError(400, "Current password is incorrect.");
+  }
+  if (newPassword.length < 4) {
+    throw new AppError(400, "Password must be at least 4 characters.");
+  }
+  if (currentPassword === newPassword) {
+    throw new AppError(400, "New password must be different from the current password.");
+  }
+  const passwordHash = await hashPassword(newPassword);
+  await pool.query("UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1", [
+    userId,
+    passwordHash,
+  ]);
+  // Issue a fresh token so the session continues after the password change.
+  const token = jwt.sign({ sub: userId }, config.JWT_SECRET, { expiresIn: "12h" });
+  return { ok: true, token };
+}

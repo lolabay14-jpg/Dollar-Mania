@@ -28,6 +28,11 @@ const _SYMBOLS := {
 	"lucky-wheel": "star",
 	"prize-spinner": "diamond",
 	"fishing": "blue",
+	"diamond-spin": "diamond",
+	"mystery-box": "gold",
+	"target-blast": "star",
+	"aeroplane-rush": "bonus",
+	"bottle-blast": "seven",
 	"dice": "star",
 	"lucky-number": "seven",
 }
@@ -74,7 +79,7 @@ func _ensure_art() -> void:
 	_art.offset_right = 0
 	_art.offset_bottom = 0
 	_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_art)
 	move_child(_art, 0)
@@ -99,6 +104,12 @@ func _cast_ids() -> PackedStringArray:
 			return PackedStringArray(["star", "diamond", "seven", "bonus"])
 		"fishing":
 			return PackedStringArray(["blue", "jade", "gold", "diamond"])
+		"diamond-spin":
+			return PackedStringArray(["diamond", "ruby", "jade", "gold"])
+		"mystery-box":
+			return PackedStringArray(["gold", "diamond", "star"])
+		"target-blast":
+			return PackedStringArray(["star", "seven", "bonus"])
 		"dice":
 			return PackedStringArray(["star", "coin", "diamond"])
 		"lucky-number":
@@ -162,7 +173,7 @@ func _fit_photo() -> void:
 	if width < 32.0:
 		return
 	var height := width * tex_size.y / tex_size.x
-	custom_minimum_size = Vector2(0, clampf(height, 160.0, 420.0))
+	custom_minimum_size = Vector2(0, clampf(height, 168.0, 280.0))
 
 
 func _place_symbol() -> void:

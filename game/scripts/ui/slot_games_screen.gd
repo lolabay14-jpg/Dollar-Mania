@@ -8,13 +8,9 @@ var _games: Array = []
 var _filter := "ALL"
 var _filters: HFlowContainer
 var _lead: Label
-var _featured: GameCard
 var _popular_title: Label
 var _popular: GridContainer
 var _more_title: Label
-var _feature_index := 0
-var _feature_timer: Timer
-var _feature_paused := false
 
 
 func _ready() -> void:
@@ -36,13 +32,6 @@ func _ready() -> void:
 	content.add_child(_lead)
 	content.move_child(_lead, %Subtitle.get_index())
 	_build_filters()
-	_featured = GameCard.new()
-	_featured.visible = false
-	_featured.play_pressed.connect(_launch)
-	_featured.mouse_entered.connect(func() -> void: _feature_paused = true)
-	_featured.mouse_exited.connect(func() -> void: _feature_paused = false)
-	content.add_child(_featured)
-	content.move_child(_featured, _list.get_index())
 	_popular_title = _section_title("Popular games")
 	content.add_child(_popular_title)
 	content.move_child(_popular_title, _list.get_index())
@@ -54,10 +43,6 @@ func _ready() -> void:
 	content.move_child(_more_title, _list.get_index())
 	_list.add_theme_constant_override("h_separation", 16)
 	_list.add_theme_constant_override("v_separation", 16)
-	_feature_timer = Timer.new()
-	_feature_timer.wait_time = 6.0
-	_feature_timer.timeout.connect(_advance_feature)
-	add_child(_feature_timer)
 	resized.connect(_fit)
 	_fit()
 	_load_games()
@@ -120,9 +105,7 @@ func _load_games() -> void:
 		return
 	%Subtitle.text = "Choose a game and start playing."
 	_games = games
-	_feature_index = 0
 	_render_games()
-	_feature_timer.start()
 	await get_tree().process_frame
 	if is_inside_tree():
 		UiMotion.fade_in(%Column)
@@ -142,7 +125,7 @@ func _build_filters() -> void:
 		button.set_meta("group", str(item[0]))
 		button.toggle_mode = true
 		button.button_pressed = str(item[0]) == "ALL"
-		button.custom_minimum_size = Vector2(96, 44)
+		button.custom_minimum_size = Vector2(96, 48)
 		button.theme_type_variation = "SelectedButton" if str(item[0]) == "ALL" else "Button"
 		button.pressed.connect(_set_filter.bind(str(item[0])))
 		_filters.add_child(button)
@@ -167,20 +150,14 @@ func _set_filter(name: String) -> void:
 func _render_games() -> void:
 	_clear_grid(_list)
 	_clear_grid(_popular)
-	var featured_games := _feature_pool()
-	var show_sections := _filter == "ALL" and not featured_games.is_empty()
-	_featured.visible = show_sections
+	var show_sections := _filter == "ALL"
 	_popular_title.visible = show_sections
 	_popular.visible = show_sections
 	if show_sections:
-		_show_feature(featured_games[_feature_index % featured_games.size()])
-		var featured_slug := str(featured_games[_feature_index % featured_games.size()].get("slug", ""))
 		var popular_count := 0
 		var more_count := 0
 		for game in _games:
 			if not game is Dictionary:
-				continue
-			if str(game.get("slug", "")) == featured_slug:
 				continue
 			if GameCard.is_popular(game):
 				_add_card(_popular, game, popular_count)
@@ -188,6 +165,8 @@ func _render_games() -> void:
 			else:
 				_add_card(_list, game, more_count)
 				more_count += 1
+		_popular_title.visible = popular_count > 0
+		_popular.visible = popular_count > 0
 		_popular_title.text = "Popular games"
 		_more_title.text = "More games"
 		_more_title.visible = more_count > 0
@@ -229,49 +208,6 @@ func _filter_title() -> String:
 			return "Games"
 
 
-func _feature_pool() -> Array:
-	var pool: Array = []
-	for game in _games:
-		if game is Dictionary and GameCard.is_popular(game):
-			pool.append(game)
-	if pool.is_empty():
-		for game in _games:
-			if game is Dictionary:
-				pool.append(game)
-				break
-	var ordered: Array = []
-	for slug in ["fruit-spin", "lucky-wheel", "prize-spinner", "lucky-dollar", "fishing", "higher-card"]:
-		for game in pool:
-			if game is Dictionary and str(game.get("slug", "")) == slug:
-				ordered.append(game)
-	for game in pool:
-		if game is Dictionary and not ordered.has(game):
-			ordered.append(game)
-	return ordered
-
-
-func _show_feature(game: Dictionary) -> void:
-	_featured.configure(game, true, true, "Min bet %s    Max bet %s" % [
-		_whole(game.get("minimumBet", 0)),
-		_whole(game.get("maximumBet", 0)),
-	])
-	UiMotion.bind_tree(_featured)
-	_featured.visible = true
-
-
-func _advance_feature() -> void:
-	if _feature_paused or _filter != "ALL" or _opening:
-		return
-	var pool := _feature_pool()
-	if pool.size() < 2:
-		return
-	_feature_index = (_feature_index + 1) % pool.size()
-	_show_feature(pool[_feature_index])
-	_featured.modulate.a = 0.0
-	var tween := _featured.create_tween()
-	tween.tween_property(_featured, "modulate:a", 1.0, 0.28)
-
-
 func _matches(game: Dictionary) -> bool:
 	match _filter:
 		"SPIN", "SLOTS", "ARCADE", "CARDS", "SPECIAL":
@@ -299,10 +235,19 @@ func _clear_grid(grid: GridContainer) -> void:
 
 func _make_card(game: Dictionary) -> PanelContainer:
 	var card := GameCard.new()
+	var width := 260.0
+	var height := 190.0
+	if size.x >= 900.0:
+		width = 280.0
+		height = 200.0
+	elif size.x < 420.0:
+		width = 240.0
+		height = 175.0
 	card.configure(game, false, true, "Min bet %s    Max bet %s" % [
 		_whole(game.get("minimumBet", 0)),
 		_whole(game.get("maximumBet", 0)),
-	])
+	], Vector2(width, height))
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.play_pressed.connect(_launch)
 	UiMotion.bind_tree(card)
 	return card
@@ -310,6 +255,8 @@ func _make_card(game: Dictionary) -> PanelContainer:
 
 func _launch(game: Dictionary) -> void:
 	if _opening:
+		return
+	if game.has("enabled") and not bool(game.get("enabled", true)):
 		return
 	_opening = true
 	_start_game(game)
@@ -322,6 +269,7 @@ func _start_game(game: Dictionary) -> void:
 		"name": str(game.get("name", "")),
 		"category": str(game.get("category", "")),
 		"description": str(game.get("description", "")),
+		"difficulty": str(game.get("difficulty", "")),
 		"min_bet": int(game.get("minimumBet", 1)),
 		"max_bet": int(game.get("maximumBet", 1)),
 	}

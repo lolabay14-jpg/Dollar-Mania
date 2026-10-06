@@ -38,7 +38,41 @@ export function resolveRound(
 ): PlayRound {
   const round = resolveBase(slug, choice, parameters);
   const tuned = applyDifficulty(round, difficulty, () => resolveBase(slug, choice, parameters));
-  return applyRewardScale(slug, tuned, parameters);
+  return alignTargets(applyRewardScale(slug, tuned, parameters));
+}
+
+function alignTargets(round: PlayRound): PlayRound {
+  if (round.presentation.kind === "targets") {
+    const targets = buildTargets(round.multiplier);
+    const multiplier = targets.reduce((sum, target) => sum + target.points, 0);
+    return {
+      ...round,
+      multiplier,
+      title: multiplier > 0 ? "Targets cleared" : "No hit",
+      presentation: { ...round.presentation, targets },
+    };
+  }
+  if (round.presentation.kind === "flight") {
+    const coins = buildCoins(round.multiplier);
+    const multiplier = coins.reduce((sum, coin) => sum + coin.points, 0);
+    return {
+      ...round,
+      multiplier,
+      title: multiplier > 0 ? "Coins collected" : "Empty sky",
+      presentation: { ...round.presentation, coins },
+    };
+  }
+  if (round.presentation.kind === "bottles") {
+    const bottles = buildBottles(round.multiplier);
+    const multiplier = bottles.reduce((sum, bottle) => sum + bottle.points, 0);
+    return {
+      ...round,
+      multiplier,
+      title: multiplier > 0 ? "Bottles cleared" : "No break",
+      presentation: { ...round.presentation, bottles },
+    };
+  }
+  return round;
 }
 
 function resolveBase(slug: string, choice: unknown, parameters: RoundParameters): PlayRound {
@@ -58,6 +92,8 @@ function resolveBase(slug: string, choice: unknown, parameters: RoundParameters)
       return coinFlip(choice, parameters);
     case "treasure-box":
       return treasureBox(choice, parameters);
+    case "mystery-box":
+      return mysteryBox(parameters);
     case "cash-match":
       return cashMatch(parameters);
     case "diamond-drop":
@@ -70,6 +106,15 @@ function resolveBase(slug: string, choice: unknown, parameters: RoundParameters)
         "jackpot",
         [0, 1, 0, 2, 0, 5, 0, 1, 0, 10, 0, 50],
         [20, 8, 16, 6, 16, 3, 14, 8, 12, 2, 14, 1],
+        parameters,
+      );
+    case "diamond-spin":
+      return labeledWheel(
+        slug,
+        "diamond",
+        [0, 2, 0, 4, 1, 8, 0, 3, 12, 2],
+        [16, 12, 14, 8, 12, 4, 14, 10, 2, 8],
+        ["ruby", "sapphire", "emerald", "diamond", "amethyst", "crystal", "gold", "jade", "seven", "star"],
         parameters,
       );
     case "fruit-spin":
@@ -101,6 +146,12 @@ function resolveBase(slug: string, choice: unknown, parameters: RoundParameters)
       );
     case "fishing":
       return fishing();
+    case "target-blast":
+      return targetBlast();
+    case "aeroplane-rush":
+      return aeroplane();
+    case "bottle-blast":
+      return bottleBlast();
     case "dice":
       return dice();
     case "lucky-number":
@@ -242,7 +293,7 @@ function scratchMania(): PlayRound {
 
 function labeledWheel(
   slug: string,
-  kind: "fruit" | "lucky" | "spinner",
+  kind: "fruit" | "lucky" | "spinner" | "diamond",
   segments: number[],
   weights: number[],
   symbols: string[],
@@ -307,13 +358,163 @@ function fishing(): PlayRound {
       fish: fish.id,
       name: fish.name,
       rarity: fish.rarity,
+      duration: 14,
     },
+  };
+}
+
+function targetBlast(): PlayRound {
+  const tiers = [
+    { multiplier: 0, weight: 42 },
+    { multiplier: 1, weight: 26 },
+    { multiplier: 2, weight: 16 },
+    { multiplier: 3, weight: 8 },
+    { multiplier: 5, weight: 5 },
+    { multiplier: 8, weight: 2 },
+    { multiplier: 12, weight: 1 },
+  ];
+  const tier = tiers[weightedIndex(tiers.map((entry) => entry.weight))];
+  const targets = buildTargets(tier.multiplier);
+  const multiplier = targets.reduce((sum, target) => sum + target.points, 0);
+  return {
+    multiplier,
+    title: multiplier > 0 ? "Targets cleared" : "No hit",
+    presentation: { kind: "targets", duration: 12, targets },
+  };
+}
+
+function aeroplane(): PlayRound {
+  const tiers = [
+    { multiplier: 0, weight: 40 },
+    { multiplier: 1, weight: 26 },
+    { multiplier: 2, weight: 16 },
+    { multiplier: 3, weight: 9 },
+    { multiplier: 5, weight: 6 },
+    { multiplier: 8, weight: 2 },
+    { multiplier: 12, weight: 1 },
+  ];
+  const tier = tiers[weightedIndex(tiers.map((entry) => entry.weight))];
+  const coins = buildCoins(tier.multiplier);
+  const multiplier = coins.reduce((sum, coin) => sum + coin.points, 0);
+  const obstacles = [0, 1, 2, 1].map((lane, index) => ({ lane, delay: Math.round((1.2 + index * 1.7) * 100) / 100 }));
+  return {
+    multiplier,
+    title: multiplier > 0 ? "Coins collected" : "Empty sky",
+    presentation: { kind: "flight", duration: 12, coins, obstacles },
+  };
+}
+
+function buildCoins(multiplier: number): Array<{ lane: number; points: number; delay: number }> {
+  const total = Math.max(0, Math.round(multiplier));
+  if (total <= 0) {
+    return [{ lane: 1, points: 0, delay: 0.8 }];
+  }
+  const coins: Array<{ lane: number; points: number; delay: number }> = [];
+  let remaining = total;
+  let delay = 0.45;
+  let index = 0;
+  while (remaining > 0 && coins.length < 6) {
+    const points = Math.min(remaining >= 3 && index === 2 ? 2 : 1, remaining);
+    coins.push({ lane: index % 3, points, delay: Math.round(delay * 100) / 100 });
+    remaining -= points;
+    delay += 1.35;
+    index += 1;
+  }
+  return coins;
+}
+
+function bottleBlast(): PlayRound {
+  const tiers = [
+    { multiplier: 0, weight: 40 },
+    { multiplier: 1, weight: 26 },
+    { multiplier: 2, weight: 16 },
+    { multiplier: 3, weight: 9 },
+    { multiplier: 5, weight: 6 },
+    { multiplier: 8, weight: 2 },
+    { multiplier: 12, weight: 1 },
+  ];
+  const tier = tiers[weightedIndex(tiers.map((entry) => entry.weight))];
+  const bottles = buildBottles(tier.multiplier);
+  const multiplier = bottles.reduce((sum, bottle) => sum + bottle.points, 0);
+  return {
+    multiplier,
+    title: multiplier > 0 ? "Bottles cleared" : "No break",
+    presentation: { kind: "bottles", duration: 12, bottles },
+  };
+}
+
+function buildBottles(
+  multiplier: number,
+): Array<{ type: string; points: number; delay: number; bonus: boolean }> {
+  const total = Math.max(0, Math.round(multiplier));
+  if (total <= 0) {
+    return [
+      { type: "normal", points: 0, delay: 0.3, bonus: false },
+      { type: "fast", points: 0, delay: 1.5, bonus: false },
+    ];
+  }
+  const bottles: Array<{ type: string; points: number; delay: number; bonus: boolean }> = [];
+  let remaining = total;
+  let delay = 0.3;
+  let index = 0;
+  const types = ["normal", "fast", "golden", "bonus"];
+  while (remaining > 0 && bottles.length < 6) {
+    const points = Math.min(remaining >= 3 && index === 2 ? 2 : 1, remaining);
+    const bonus = points > 1;
+    const type = bonus ? "golden" : types[index % types.length];
+    bottles.push({ type, points, delay: Math.round(delay * 100) / 100, bonus });
+    remaining -= points;
+    delay += 1.15;
+    index += 1;
+  }
+  return bottles;
+}
+
+function buildTargets(multiplier: number): Array<{ size: string; points: number; delay: number; bonus: boolean }> {
+  const total = Math.max(0, Math.round(multiplier));
+  if (total <= 0) {
+    return [
+      { size: "small", points: 0, delay: 0.3, bonus: false },
+      { size: "medium", points: 0, delay: 1.4, bonus: false },
+      { size: "large", points: 0, delay: 2.6, bonus: false },
+    ];
+  }
+  const targets: Array<{ size: string; points: number; delay: number; bonus: boolean }> = [];
+  let remaining = total;
+  let delay = 0.35;
+  let index = 0;
+  while (remaining > 0 && targets.length < 6) {
+    let points = 1;
+    if (remaining >= 4 && index === 1) {
+      points = 2;
+    }
+    points = Math.min(points, remaining);
+    const bonus = points > 1;
+    const size = bonus ? "bonus" : index % 3 === 0 ? "small" : index % 3 === 1 ? "medium" : "large";
+    targets.push({ size, points, delay: Math.round(delay * 100) / 100, bonus });
+    remaining -= points;
+    delay += 1.2;
+    index += 1;
+  }
+  return targets;
+}
+
+function mysteryBox(parameters: RoundParameters): PlayRound {
+  const table = [0, 1, 2, 4, 8];
+  const weights = [36, 28, 18, 12, 6];
+  const bias = clampParameter("mystery-box", "prizeBias", parameters.prizeBias);
+  const tuned = weights.map((weight, index) => (table[index] > 0 ? weight + bias : weight));
+  const multiplier = pickWeighted(table, tuned);
+  return {
+    multiplier,
+    title: multiplier > 0 ? "Box opened" : "Empty box",
+    presentation: { kind: "mystery", prize: multiplier },
   };
 }
 
 function spinWheel(
   slug: string,
-  kind: "wheel" | "jackpot" | "fruit" | "lucky" | "spinner",
+  kind: "wheel" | "jackpot" | "fruit" | "lucky" | "spinner" | "diamond",
   segments: number[],
   weights: number[],
   parameters: RoundParameters,

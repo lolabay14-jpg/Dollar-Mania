@@ -59,6 +59,12 @@ const extras: Record<string, ParameterDef[]> = {
   "fruit-spin": [
     { key: "prizeBias", label: "Prize bias", min: 0, max: 12, step: 1, defaultValue: 0 },
   ],
+  "diamond-spin": [
+    { key: "prizeBias", label: "Prize bias", min: 0, max: 12, step: 1, defaultValue: 0 },
+  ],
+  "mystery-box": [
+    { key: "prizeBias", label: "Prize bias", min: 0, max: 12, step: 1, defaultValue: 0 },
+  ],
   "lucky-wheel": [
     { key: "prizeBias", label: "Prize bias", min: 0, max: 12, step: 1, defaultValue: 0 },
   ],

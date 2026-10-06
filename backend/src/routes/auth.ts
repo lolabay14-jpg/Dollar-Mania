@@ -3,7 +3,7 @@ import { z } from "zod";
 import { AppError } from "../errors";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { authenticate } from "../middleware/authenticate";
-import { login } from "../services/authService";
+import { changePassword, login } from "../services/authService";
 import { getOwnProfile } from "../services/userService";
 
 export const authRouter = Router();
@@ -12,6 +12,17 @@ const loginSchema = z.object({
   username: z.string().trim().min(1, "Username or email is required."),
   password: z.string().min(1, "Password is required."),
 });
+
+const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Enter your current password."),
+    newPassword: z.string().min(4, "Password must be at least 4 characters."),
+    confirmPassword: z.string().min(1, "Confirm your new password."),
+  })
+  .refine((value) => value.newPassword === value.confirmPassword, {
+    message: "New password and confirmation do not match.",
+    path: ["confirmPassword"],
+  });
 
 authRouter.post("/register", (_req, res) => {
   res.status(403).json({ error: "Player accounts are created by an administrator." });
@@ -37,6 +48,16 @@ authRouter.get(
       return;
     }
     res.json({ user: { id: authUser.id, username: authUser.username, role: authUser.role } });
+  }),
+);
+
+authRouter.post(
+  "/change-password",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const body = parse(changePasswordSchema, req.body);
+    const result = await changePassword(req.authUser!.id, body.currentPassword, body.newPassword);
+    res.json({ message: "Password updated successfully.", token: result.token });
   }),
 );
 

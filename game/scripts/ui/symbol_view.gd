@@ -163,6 +163,8 @@ func _draw_star(center: Vector2, radius: float, color: Color) -> void:
 	var points := PackedVector2Array()
 	for index in 10:
 		var angle := -PI / 2.0 + float(index) * PI / 5.0
-		var reach := radius if index % 2 == 0 else radius * 0.46
+		var reach := radius * 0.46
+		if index % 2 == 0:
+			reach = radius
 		points.append(center + Vector2(cos(angle), sin(angle)) * reach)
 	draw_colored_polygon(points, color)
