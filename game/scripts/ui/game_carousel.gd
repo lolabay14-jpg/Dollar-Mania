@@ -67,15 +67,22 @@ func _update_header(title: String, subtitle: String) -> void:
 	for child in header.get_children():
 		if child is VBoxContainer:
 			var copy := child as VBoxContainer
-			if copy.get_child_count() > 0 and copy.get_child(0) is Label:
-				(copy.get_child(0) as Label).text = title
-			if subtitle != "" and copy.get_child_count() > 1 and copy.get_child(1) is Label:
-				(copy.get_child(1) as Label).text = subtitle
-			elif subtitle != "" and copy.get_child_count() == 1:
-				var sub := Label.new()
-				sub.text = subtitle
-				UiTheme.style_muted(sub)
-				copy.add_child(sub)
+			var labels: Array[Label] = []
+			for line in copy.get_children():
+				if line is Label:
+					labels.append(line)
+			if title != "" and not labels.is_empty():
+				labels[0].text = title
+			if subtitle != "":
+				if title == "" and labels.size() == 1:
+					labels[0].text = subtitle
+				elif labels.size() > 1:
+					labels[labels.size() - 1].text = subtitle
+				elif title != "":
+					var sub := Label.new()
+					sub.text = subtitle
+					UiTheme.style_muted(sub)
+					copy.add_child(sub)
 			break
 
 
@@ -90,11 +97,12 @@ func _build_header(title: String, subtitle: String) -> void:
 	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	copy.add_theme_constant_override("separation", 2)
 	header.add_child(copy)
-	var title_label := Label.new()
-	title_label.text = title
-	title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	UiTheme.style_title(title_label, 22)
-	copy.add_child(title_label)
+	if title != "":
+		var title_label := Label.new()
+		title_label.text = title
+		title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		UiTheme.style_title(title_label, 22)
+		copy.add_child(title_label)
 	if subtitle != "":
 		var sub := Label.new()
 		sub.text = subtitle

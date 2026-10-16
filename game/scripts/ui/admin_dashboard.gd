@@ -598,6 +598,7 @@ func _render_games() -> void:
 	if _games.is_empty():
 		_page.add_child(_muted("No games are in the catalog."))
 		return
+	_page.add_child(_muted("Toggle availability here. Inactive games stay hidden from players."))
 	var grid := GridContainer.new()
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.columns = 2 if size.x >= 860.0 else 1
@@ -630,16 +631,25 @@ func _game_card(game: Dictionary) -> PanelContainer:
 	copy.add_child(title)
 	copy.add_child(_muted(str(game.get("category", ""))))
 	copy.add_child(_muted(str(game.get("description", ""))))
-	var active := "Active" if bool(game.get("isActive", true)) else "Inactive"
-	copy.add_child(Label.new())
-	var facts := copy.get_child(copy.get_child_count() - 1) as Label
-	facts.text = "Bets %s–%s   ·   %s   ·   %s plays" % [
+	var active := bool(game.get("isActive", true))
+	var facts := Label.new()
+	facts.text = "Bets %s–%s   ·   %s plays" % [
 		str(int(game.get("minimumBet", 0))),
 		str(int(game.get("maximumBet", 0))),
-		active,
 		str(int(game.get("spins", 0))),
 	]
 	facts.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	copy.add_child(facts)
+	var toggle := CheckBox.new()
+	toggle.text = "Available to players" if active else "Hidden from players"
+	toggle.button_pressed = active
+	toggle.custom_minimum_size.y = 44
+	var game_id := str(game.get("id", ""))
+	toggle.toggled.connect(func(on: bool) -> void:
+		toggle.text = "Available to players" if on else "Hidden from players"
+		_set_game_active(on, game_id, toggle)
+	)
+	copy.add_child(toggle)
 	return card
 
 
@@ -845,34 +855,6 @@ func _render_settings() -> void:
 	logout.pressed.connect(_logout)
 	account_host.add_child(logout)
 	_mount_password_card(security_host)
-	var games_box := _form_box()
-	games_box.add_child(_muted("Loading game settings..."))
-	var response: Dictionary = await ApiClient.admin_platform_settings()
-	if not is_inside_tree() or _section != "settings":
-		return
-	for child in games_box.get_children():
-		games_box.remove_child(child)
-		child.free()
-	if not response.ok:
-		games_box.add_child(_empty_state("Unable to load game settings", "Try again in a moment."))
-		return
-	var heading := Label.new()
-	heading.text = "Game availability"
-	heading.add_theme_font_size_override("font_size", 20)
-	games_box.add_child(heading)
-	games_box.add_child(_muted("Game mode is assigned on each player's page. Players never see it."))
-	var games_value: Variant = response.data.get("games", [])
-	var games: Array = games_value if games_value is Array else []
-	for game in games:
-		if not game is Dictionary:
-			continue
-		var toggle := CheckBox.new()
-		toggle.text = str(game.get("name", "Game"))
-		toggle.button_pressed = bool(game.get("isActive", true))
-		toggle.custom_minimum_size.y = 44
-		var game_id := str(game.get("id", ""))
-		toggle.toggled.connect(_set_game_active.bind(game_id, toggle))
-		games_box.add_child(toggle)
 
 
 func _mount_password_card(host: VBoxContainer) -> void:

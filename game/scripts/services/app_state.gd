@@ -43,7 +43,8 @@ func go_main() -> void:
 
 
 func go_slots() -> void:
-	_change(SCENE_SLOTS)
+	# Single player lobby — slot_games was a duplicate of the Games tab.
+	_change(SCENE_PLAYER)
 
 
 func go_machine() -> void:

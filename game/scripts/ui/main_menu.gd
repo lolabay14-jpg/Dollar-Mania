@@ -28,9 +28,13 @@ func _ready() -> void:
 	chip.content_margin_top = 8
 	chip.content_margin_bottom = 8
 	avatar.add_theme_stylebox_override("panel", chip)
-	%PlayButton.pressed.connect(_on_play)
-	%SlotsButton.pressed.connect(AppState.go_slots)
-	%PlayerButton.pressed.connect(AppState.go_player)
+	%PlayButton.pressed.connect(AppState.go_player)
+	%PlayButton.text = "Open Games"
+	# Games and Player both opened duplicate lobbies — keep one entry point.
+	%SlotsButton.visible = false
+	%SlotsButton.disabled = true
+	%PlayerButton.visible = false
+	%PlayerButton.disabled = true
 	%AdminButton.pressed.connect(AppState.go_admin)
 	%SettingsButton.pressed.connect(AppState.go_settings)
 	CreditService.state_changed.connect(_refresh_profile)
@@ -47,18 +51,6 @@ func _refresh_profile() -> void:
 	%PlayerName.text = str(player.get("name", "Player"))
 	%CreditsLabel.text = "%d credits" % int(player.get("credits", 0))
 	%AvatarLabel.text = _initials(str(player.get("name", "A")))
-
-
-func _on_play() -> void:
-	AppState.selected_slot_id = "lucky-dollar"
-	AppState.selected_game = {
-		"slug": "lucky-dollar",
-		"name": "Lucky Dollar",
-		"description": "Three reels and one payline.",
-		"min_bet": 1,
-		"max_bet": 100,
-	}
-	AppState.go_machine()
 
 
 func _fit() -> void:

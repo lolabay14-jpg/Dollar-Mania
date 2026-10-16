@@ -45,6 +45,10 @@ var _spawn := 0.0
 var _font: Font
 var _shoot: Button
 var _next_id := 1
+var _paused := false
+var _combo := 0
+var _shake := 0.0
+var _rapid := 0.0
 
 
 func _ready() -> void:
@@ -87,7 +91,18 @@ func show_loading() -> void:
 	queue_redraw()
 
 
-func play_round(presentation: Dictionary, bet: int, win_amount: float, credits: float) -> void:
+func set_paused(paused: bool) -> void:
+	_paused = paused
+	if _shoot:
+		_shoot.disabled = paused or _phase != "play"
+	queue_redraw()
+
+
+func round_score() -> int:
+	return _score
+
+
+func play_round(presentation: Dictionary, bet: int, win_amount: float, credits: float, armed: bool = false) -> void:
 	_closed = false
 	_bet = bet
 	_win = maxf(win_amount, 0.0)
@@ -96,6 +111,9 @@ func play_round(presentation: Dictionary, bet: int, win_amount: float, credits: 
 	_shown_reward = 0.0
 	_prize_hit = false
 	_rescued = false
+	_combo = 0
+	_shake = 0.0
+	_rapid = 0.0
 	_left = float(presentation.get("duration", 14))
 	_round = _left
 	_prize_name = str(presentation.get("name", "Fish"))
@@ -104,7 +122,7 @@ func play_round(presentation: Dictionary, bet: int, win_amount: float, credits: 
 	_fill_school(true)
 	_count_n = 3
 	_count_t = 0.42
-	_phase = "countdown"
+	_phase = "play" if armed else "countdown"
 	set_process(true)
 	_place_controls()
 	await finished
@@ -116,9 +134,14 @@ func _exit_tree() -> void:
 
 func _process(delta: float) -> void:
 	delta = clampf(delta, 0.0, 0.034)
+	if _paused:
+		queue_redraw()
+		return
 	_time += delta
 	_cooldown = maxf(_cooldown - delta, 0.0)
 	_recoil = maxf(_recoil - delta * 6.0, 0.0)
+	_shake = maxf(_shake - delta * 2.6, 0.0)
+	_rapid = maxf(_rapid - delta, 0.0)
 	_drift_bubbles(delta)
 	match _phase:
 		"idle", "loading":
@@ -155,6 +178,20 @@ func _process(delta: float) -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
+	if _paused or _phase == "done":
+		return
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if not key.pressed or key.echo or _phase != "play":
+			return
+		if key.keycode == KEY_LEFT or key.keycode == KEY_A:
+			_aim = clampf(_aim - 0.14, -PI + 0.35, -0.35)
+		elif key.keycode == KEY_RIGHT or key.keycode == KEY_D:
+			_aim = clampf(_aim + 0.14, -PI + 0.35, -0.35)
+		elif key.keycode == KEY_SPACE or key.keycode == KEY_ENTER:
+			_fire()
+		accept_event()
+		return
 	var point := Vector2.ZERO
 	var pressed := false
 	var aimed := false
@@ -288,9 +325,9 @@ func _aim_at(point: Vector2) -> void:
 
 
 func _fire() -> void:
-	if (_phase != "play" and _phase != "finale") or _cooldown > 0.0 or _shots.size() >= 8:
+	if _paused or _phase != "play" or _cooldown > 0.0 or _shots.size() >= 8:
 		return
-	_cooldown = 0.22
+	_cooldown = 0.08 if _rapid > 0.0 else 0.22
 	_recoil = 1.0
 	_next_id += 1
 	var origin := _cannon_pos() + Vector2(cos(_aim), sin(_aim)) * 28.0
@@ -313,6 +350,8 @@ func _simulate(delta: float) -> void:
 		var pos: Vector2 = shot["pos"]
 		if float(shot["life"]) <= 0.0 or pos.y < 36.0 or pos.x < -20.0 or pos.x > size.x + 20.0:
 			expired.append(index)
+			if _phase == "play":
+				_combo = 0
 			continue
 		if _hit_shot(pos):
 			expired.append(index)
@@ -334,6 +373,9 @@ func _swim(delta: float) -> void:
 		var pos: Vector2 = fish["pos"]
 		var kind := str(fish.get("kind", "small"))
 		var speed := float(fish["speed"])
+		if _round > 0.0:
+			var heat := 1.0 + (1.0 - clampf(_left / _round, 0.0, 1.0)) * 0.6
+			speed *= heat
 		if kind == "rare":
 			speed *= 0.55 + absf(sin(_time * 2.4 + float(fish["bob"])))
 		pos.x += float(fish["dir"]) * speed * delta
@@ -394,13 +436,21 @@ func _damage(fish: Dictionary, at: Vector2) -> void:
 		return
 	fish["alive"] = false
 	var points := _points_for(str(fish.get("kind", "small")))
+	_combo += 1
+	_shake = 1.0
+	if _combo >= 3:
+		_rapid = 2.4
+		points += _combo
 	_score += points
 	if bool(fish["prize"]) and not _prize_hit:
 		_prize_hit = true
 		_shown_reward = _win
 		_popup(at, "+%s" % _amount(_win), Color("FFE38A"))
 	else:
-		_popup(at, "+%d" % points, Color("D7F6FF"))
+		var tag := "+%d" % points
+		if _combo >= 3:
+			tag = "Combo %d" % _combo
+		_popup(at, tag, Color("FFE38A") if _combo >= 3 else Color("D7F6FF"))
 
 
 func _guide_prize() -> void:
@@ -546,6 +596,9 @@ func _place_controls() -> void:
 
 
 func _draw() -> void:
+	if _shake > 0.0:
+		var kick := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake * 4.0
+		draw_set_transform(kick, 0.0, Vector2.ONE)
 	var rect := Rect2(Vector2.ZERO, size)
 	if rect.size.x < 16.0 or rect.size.y < 16.0:
 		return
@@ -584,12 +637,16 @@ func _draw() -> void:
 	_draw_hud()
 	for pop in _pops:
 		_draw_popup(pop)
-	if _phase == "countdown":
+	if _paused:
+		_draw_center("Paused", "Resume to continue")
+	elif _phase == "countdown":
 		_draw_center(str(maxi(_count_n, 1)), "Aim the cannon")
 	elif _phase == "loading":
 		_draw_center("Diving", "Get ready")
 	elif _phase == "idle":
 		_draw_center("", "Aim and shoot the glowing fish")
+	elif _phase == "finale" or _phase == "done":
+		_draw_center("Round over", _prize_name if _prize_name != "" else "Catch checked")
 	elif _phase == "play" and _left <= 3.0:
 		_draw_center(str(int(ceil(_left))), "Final seconds")
 
@@ -689,9 +746,12 @@ func _draw_hud() -> void:
 	_column_text(col, col, "ENTRY", _amount(_bet), Color("9AA6BD"), Color("F4F7FB"), value_size)
 	_column_text(col * 2.0, col, "TIME", time_label, Color("9AA6BD"), timer_color, value_size)
 	var score_text := str(_score)
-	if _shown_reward > 0.0:
+	if _combo > 1:
+		score_text = "%d  x%d" % [_score, _combo]
+	elif _shown_reward > 0.0:
 		score_text = "%d +%s" % [_score, _amount(_shown_reward)]
-	_column_text(col * 3.0, col, "SCORE", score_text, Color("9AA6BD"), Color("3DDC97"), value_size)
+	var score_caption := "RAPID" if _rapid > 0.0 else "SCORE"
+	_column_text(col * 3.0, col, score_caption, score_text, Color("9AA6BD"), Color("FFE38A") if _rapid > 0.0 else Color("3DDC97"), value_size)
 
 
 func _draw_center(primary: String, caption: String) -> void:

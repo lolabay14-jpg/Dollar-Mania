@@ -11,6 +11,7 @@ const SCREEN := {
 }
 
 ## Game slug → exact existing image path in res://Images.
+## Prefer unique art per playable lobby game so cards do not look duplicated.
 const GAMES := {
 	"fruit-spin": "res://Images/Gemini_Generated_Image_oi6udxoi6udxoi6u (1).jpg",
 	"diamond-spin": "res://Images/Gemini_Generated_Image_j3cjemj3cjemj3cj.jpg",
@@ -20,19 +21,19 @@ const GAMES := {
 	"coin-flip": "res://Images/Gemini_Generated_Image_ejtmm3ejtmm3ejtm.jpg",
 	"treasure-box": "res://Images/Gemini_Generated_Image_8qlcn08qlcn08qlc.jpg",
 	"cash-match": "res://Images/Gemini_Generated_Image_fejdc5fejdc5fejd.jpg",
-	"diamond-drop": "res://Images/Gemini_Generated_Image_j3cjemj3cjemj3cj.jpg",
-	"bonus-burst": "res://Images/Gemini_Generated_Image_b6l6ksb6l6ksb6l6.jpg",
-	"jackpot-wheel": "res://Images/Gemini_Generated_Image_oi6udxoi6udxoi6u.jpg",
+	"diamond-drop": "res://Images/Neon Casino Fortune Awaits.png",
+	"bonus-burst": "res://Images/Gemini_Generated_Image_oi6udxoi6udxoi6u.jpg",
+	"jackpot-wheel": "res://Images/Gemini_Generated_Image_n9kkyan9kkyan9kk (3).jpg",
 	"mystery-box": "res://Images/Gemini_Generated_Image_8qlcn08qlcn08qlc.jpg",
-	"dollar-rush": "res://Images/Gemini_Generated_Image_n9kkyan9kkyan9kk (4).jpg",
+	"dollar-rush": "res://Images/Golden Road to the Money City.png",
 	"fishing": "res://Images/Gemini_Generated_Image_qed0ijqed0ijqed0.jpg",
 	"target-blast": "res://Images/Gemini_Generated_Image_b6l6ksb6l6ksb6l6.jpg",
-	"aeroplane-rush": "res://Images/Gemini_Generated_Image_hrgg6thrgg6thrgg (1).jpg",
+	"aeroplane-rush": "res://Images/Gemini_Generated_Image_hrgg6thrgg6thrgg.jpg",
 	"bottle-blast": "res://Images/Gemini_Generated_Image_n9kkyan9kkyan9kk (2).jpg",
 	"golden-fortune": "res://Images/Gemini_Generated_Image_n9kkyan9kkyan9kk (4).jpg",
-	"lucky-spin": "res://Images/Gemini_Generated_Image_y1akewy1akewy1ak.jpg",
-	"prize-spinner": "res://Images/Gemini_Generated_Image_n9kkyan9kkyan9kk (2).jpg",
-	"higher-card": "res://Images/Gemini_Generated_Image_n9kkyan9kkyan9kk (3).jpg",
+	"lucky-spin": "res://Images/Dollar Mania_ Run, Win, Repeat (1).png",
+	"prize-spinner": "res://Images/Gemini_Generated_Image_y1akewy1akewy1ak.jpg",
+	"higher-card": "res://Images/Gemini_Generated_Image_n9kkyan9kkyan9kk (1).jpg",
 	"dice": "res://Images/Gemini_Generated_Image_n9kkyan9kkyan9kk (1).jpg",
 	"lucky-number": "res://Images/Gemini_Generated_Image_hrgg6thrgg6thrgg.jpg",
 }

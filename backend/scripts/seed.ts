@@ -2,7 +2,16 @@ import { config } from "../src/config";
 import { pool } from "../src/db";
 import { hashPassword } from "../src/services/authService";
 
-const GAMES = [
+const GAMES: Array<{
+  name: string;
+  slug: string;
+  description: string;
+  difficulty: string;
+  category: string;
+  minimumBet: number;
+  maximumBet: number;
+  active?: boolean;
+}> = [
   {
     name: "Lucky Dollar",
     slug: "lucky-dollar",
@@ -103,7 +112,7 @@ const GAMES = [
     maximumBet: 500,
   },
   {
-    name: "Cards",
+    name: "Higher Card",
     slug: "higher-card",
     description: "Draw a card. Higher than the house wins.",
     difficulty: "EASY",
@@ -173,6 +182,7 @@ const GAMES = [
     category: "CHOICE",
     minimumBet: 5,
     maximumBet: 150,
+    active: false,
   },
   {
     name: "Target Blast",
@@ -232,9 +242,10 @@ async function seed() {
   await ensureSuperAdmin();
 
   for (const game of GAMES) {
+    const active = game.active !== false;
     await pool.query(
       `INSERT INTO slot_games (name, slug, description, difficulty, category, minimum_bet, maximum_bet, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (slug) DO UPDATE SET
          name = EXCLUDED.name,
          description = EXCLUDED.description,
@@ -242,8 +253,8 @@ async function seed() {
          category = EXCLUDED.category,
          minimum_bet = EXCLUDED.minimum_bet,
          maximum_bet = EXCLUDED.maximum_bet,
-         is_active = true`,
-      [game.name, game.slug, game.description, game.difficulty, game.category, game.minimumBet, game.maximumBet],
+         is_active = EXCLUDED.is_active`,
+      [game.name, game.slug, game.description, game.difficulty, game.category, game.minimumBet, game.maximumBet, active],
     );
   }
   console.log("Seed finished. Development accounts are ready.");

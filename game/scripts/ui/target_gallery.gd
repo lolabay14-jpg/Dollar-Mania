@@ -36,6 +36,8 @@ var _finale := 0.0
 var _flushed := false
 var _font: Font
 var _shoot: Button
+var _paused := false
+var _shake := 0.0
 
 
 func _ready() -> void:
@@ -72,7 +74,18 @@ func show_loading() -> void:
 	_phase = "loading"
 
 
-func play_round(presentation: Dictionary, bet: int, win_amount: float, credits: float) -> void:
+func set_paused(paused: bool) -> void:
+	_paused = paused
+	if _shoot:
+		_shoot.disabled = paused or _phase != "play"
+	queue_redraw()
+
+
+func round_score() -> int:
+	return _score
+
+
+func play_round(presentation: Dictionary, bet: int, win_amount: float, credits: float, armed: bool = false) -> void:
 	_closed = false
 	_bet = bet
 	_win = maxf(win_amount, 0.0)
@@ -106,7 +119,7 @@ func play_round(presentation: Dictionary, bet: int, win_amount: float, credits: 
 	_spawn_decoys()
 	_count_n = 3
 	_count_t = 0.4
-	_phase = "countdown"
+	_phase = "play" if armed else "countdown"
 	set_process(true)
 	_place_controls()
 	await finished
@@ -118,7 +131,11 @@ func _exit_tree() -> void:
 
 func _process(delta: float) -> void:
 	delta = clampf(delta, 0.0, 0.034)
+	if _paused:
+		queue_redraw()
+		return
 	_time += delta
+	_shake = maxf(_shake - delta * 2.8, 0.0)
 	_cooldown = maxf(_cooldown - delta, 0.0)
 	_recoil = maxf(_recoil - delta * 6.0, 0.0)
 	match _phase:
@@ -140,7 +157,8 @@ func _process(delta: float) -> void:
 				_fire()
 			_move_targets(delta)
 			_move_shots(delta)
-			if _left <= 0.0 or _scores_cleared:
+			var played := _duration - _left
+			if _left <= 0.0 or (_scores_cleared and played >= 1.4):
 				_begin_finale()
 		"finale":
 			_move_targets(delta)
@@ -170,6 +188,20 @@ func _pending_points() -> int:
 
 
 func _gui_input(event: InputEvent) -> void:
+	if _paused or _phase == "done":
+		return
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if not key.pressed or key.echo or _phase != "play":
+			return
+		if key.keycode == KEY_LEFT or key.keycode == KEY_A:
+			_aim = clampf(_aim - 0.14, -PI + 0.28, -0.28)
+		elif key.keycode == KEY_RIGHT or key.keycode == KEY_D:
+			_aim = clampf(_aim + 0.14, -PI + 0.28, -0.28)
+		elif key.keycode == KEY_SPACE or key.keycode == KEY_ENTER:
+			_fire()
+		accept_event()
+		return
 	var point := Vector2.ZERO
 	var aimed := false
 	var pressed := false
@@ -282,7 +314,7 @@ func _aim_at(point: Vector2) -> void:
 
 
 func _fire() -> void:
-	if (_phase != "play" and _phase != "finale") or _cooldown > 0.0 or _shots.size() >= 8:
+	if _paused or _phase != "play" or _cooldown > 0.0 or _shots.size() >= 8:
 		return
 	_cooldown = 0.2
 	_recoil = 1.0
@@ -311,7 +343,10 @@ func _move_targets(delta: float) -> void:
 		if not bool(target["alive"]):
 			continue
 		var pos: Vector2 = target["pos"]
-		pos.x += float(target["dir"]) * float(target["speed"]) * delta
+		var heat := 1.0
+		if _duration > 0.0:
+			heat = 1.0 + (1.0 - clampf(_left / _duration, 0.0, 1.0)) * 0.85
+		pos.x += float(target["dir"]) * float(target["speed"]) * heat * delta
 		pos.y += sin(_time * 2.0 + float(target["bob"])) * 18.0 * delta
 		pos.y = clampf(pos.y, 88.0, maxf(size.y - 150.0, 100.0))
 		var radius := float(target["radius"])
@@ -380,7 +415,13 @@ func _strike(target: Dictionary, at: Vector2) -> void:
 		return
 	_combo += 1
 	_best_combo = maxi(_best_combo, _combo)
-	_score += points
+	_shake = 0.85
+	var bonus := 0
+	if _combo >= 3:
+		bonus = 1
+		_popup(at + Vector2(0, -18), "Combo %d" % _combo, Color("FFE38A"))
+		_burst(at, Color("FFE38A"), 6)
+	_score += points + bonus
 	var share := float(points * _bet)
 	_shown_reward += share
 	var popup_color := Color("D9FFE8")
@@ -482,6 +523,8 @@ func _place_controls() -> void:
 
 
 func _draw() -> void:
+	if _shake > 0.0:
+		draw_set_transform(Vector2(randf_range(-3.0, 3.0), randf_range(-2.0, 2.0)) * _shake, 0.0, Vector2.ONE)
 	var rect := Rect2(Vector2.ZERO, size)
 	if rect.size.x < 16.0 or rect.size.y < 16.0:
 		return
@@ -508,12 +551,18 @@ func _draw() -> void:
 	_draw_hud()
 	for pop in _pops:
 		_draw_pop(pop)
-	if _phase == "countdown":
+	if _paused:
+		_center("Paused", "Resume to continue")
+	elif _phase == "countdown":
 		_center(str(maxi(_count_n, 1)), "Hit the targets")
 	elif _phase == "loading":
 		_center("Ready", "Arming the gallery")
 	elif _phase == "idle":
 		_center("", "Aim and blast the targets")
+	elif _phase == "finale" or _phase == "done":
+		_center("Round over", "Best combo  %d" % _best_combo)
+	elif _phase == "play" and _left <= 3.0:
+		_center(str(int(ceil(_left))), "Final seconds")
 
 
 func _draw_target(target: Dictionary) -> void:

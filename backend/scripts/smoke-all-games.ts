@@ -16,7 +16,6 @@ const REQUIRED = [
   "diamond-drop",
   "bonus-burst",
   "jackpot-wheel",
-  "mystery-box",
   "dollar-rush",
   "fishing",
   "target-blast",

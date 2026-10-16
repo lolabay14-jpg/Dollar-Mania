@@ -5,22 +5,24 @@ var _filter := "ALL"
 var _tab := "games"
 var _profile_sub := "account"
 var _filters: HBoxContainer
-var _filter_scroller: ScrollContainer
 var _game_list: VBoxContainer
 var _carousel: GameCarousel
 var _opening := false
 var _header_user: Label
-var _games_title: Label
-var _cat_dragging := false
-var _cat_axis_locked := false
-var _cat_horizontal := false
-var _cat_drag_from := Vector2.ZERO
-var _cat_scroll_from := 0
-var _cat_page_scroll := 0
 var _main_tabs: HBoxContainer
+var _lobby_note: Label
 var _games_panel: VBoxContainer
 var _credits_panel: VBoxContainer
+var _history_panel: VBoxContainer
 var _profile_panel: VBoxContainer
+var _history_list: VBoxContainer
+var _history_status: Label
+var _history_game: OptionButton
+var _history_result: OptionButton
+var _history_refresh: Button
+var _spins: Array = []
+var _history_loading := false
+var _history_loaded := false
 var _account_panel: VBoxContainer
 var _security_panel: VBoxContainer
 var _profile_sub_tabs: HBoxContainer
@@ -80,9 +82,6 @@ func _ready() -> void:
 	%BackButton.text = "Logout"
 	%BackButton.pressed.connect(_logout)
 	%PlayButton.visible = false
-	var history_title := $Scroll/Column/Content/HistoryTitle as Label
-	history_title.text = "Recent games"
-	UiTheme.style_title(history_title, 22)
 	_mount_lobby()
 	resized.connect(_fit)
 	_style_bar()
@@ -116,6 +115,7 @@ func _fit() -> void:
 	page.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	ScreenLayout.fit_column(_column, 1180.0)
 	_fit_credit_number()
+	_fit_tabs()
 
 
 func _load() -> void:
@@ -137,13 +137,6 @@ func _load() -> void:
 		var requests: Array = requests_response.data.get("requests", [])
 		_apply_request_status(requests)
 		_fill_request_history(requests)
-	var history_response: Dictionary = await ApiClient.get_spin_history()
-	if not is_inside_tree():
-		return
-	if history_response.ok:
-		_fill_history(history_response.data.get("spins", []))
-	else:
-		push_error("Spin history failed. HTTP %d. %s" % [int(history_response.get("status", 0)), str(history_response.get("error", ""))])
 	var games_response: Dictionary = await ApiClient.reload_slot_games()
 	if not is_inside_tree():
 		return
@@ -211,36 +204,6 @@ func _apply_request_status(requests: Array) -> void:
 		_request_status_label.text = text
 
 
-func _fill_history(history: Array) -> void:
-	var box: VBoxContainer = %HistoryBox
-	for child in box.get_children():
-		box.remove_child(child)
-		child.free()
-	if history.is_empty():
-		var empty := Label.new()
-		empty.text = "No spins yet. Play a game and results will show up here."
-		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		UiTheme.style_muted(empty)
-		box.add_child(empty)
-		return
-	for entry in history:
-		var row := Label.new()
-		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		row.text = "%s   %s   Bet %d   Win %d" % [
-			_short_time(str(entry.get("createdAt", ""))),
-			str(entry.get("gameName", "")),
-			int(entry.get("betAmount", entry.get("bet", 0))),
-			int(entry.get("winAmount", entry.get("payout", 0))),
-		]
-		box.add_child(row)
-
-
-func _short_time(value: String) -> String:
-	if value.contains("T"):
-		return value.split("T")[1].substr(0, 8)
-	return value
-
-
 func _mount_lobby() -> void:
 	var content := $Scroll/Column/Content
 	_main_tabs = HBoxContainer.new()
@@ -263,6 +226,12 @@ func _mount_lobby() -> void:
 	_credits_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(_credits_panel)
 
+	_history_panel = VBoxContainer.new()
+	_history_panel.name = "HistoryPanel"
+	_history_panel.add_theme_constant_override("separation", 12)
+	_history_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_child(_history_panel)
+
 	_profile_panel = VBoxContainer.new()
 	_profile_panel.name = "ProfilePanel"
 	_profile_panel.add_theme_constant_override("separation", 12)
@@ -273,14 +242,19 @@ func _mount_lobby() -> void:
 	var balance := content.get_node("BalanceCard") as Control
 	balance.reparent(_games_panel)
 	_mount_hero_banner(_games_panel)
-	_games_title = Label.new()
-	_games_title.text = "Games"
-	UiTheme.style_title(_games_title, 28)
-	_games_panel.add_child(_games_title)
+	var games_title := Label.new()
+	games_title.text = "Games"
+	UiTheme.style_title(games_title, 28)
+	_games_panel.add_child(games_title)
 	_filters = HBoxContainer.new()
 	_filters.add_theme_constant_override("separation", 0)
 	_filters.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_games_panel.add_child(_filters)
+	_lobby_note = Label.new()
+	_lobby_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lobby_note.visible = false
+	UiTheme.style_muted(_lobby_note)
+	_games_panel.add_child(_lobby_note)
 	_game_list = VBoxContainer.new()
 	_game_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_game_list.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
@@ -288,14 +262,10 @@ func _mount_lobby() -> void:
 	_game_list.add_theme_constant_override("separation", 12)
 	_games_panel.add_child(_game_list)
 	_games_panel.clip_contents = false
-	_filters.clip_contents = true
-	var history_title := content.get_node("HistoryTitle") as Control
-	var history_box := content.get_node("HistoryBox") as Control
-	history_title.reparent(_games_panel)
-	history_box.reparent(_games_panel)
 
 	# Credit Requests tab
 	_build_credits_tab()
+	_build_history_tab()
 
 	# Profile tab
 	_build_profile_tab()
@@ -312,7 +282,7 @@ func _build_main_tabs() -> void:
 	var shell := _tab_shell()
 	_main_tabs.add_child(shell)
 	var row := shell.get_child(0) as HBoxContainer
-	for item in [["games", "Games"], ["credits", "Credit Requests"], ["profile", "Profile"]]:
+	for item in [["games", "Games"], ["credits", "Credit Requests"], ["history", "History"], ["profile", "Profile"]]:
 		var button := Button.new()
 		button.text = str(item[1])
 		button.set_meta("tab", str(item[0]))
@@ -380,14 +350,38 @@ func _show_tab(tab: String) -> void:
 		_games_panel.visible = tab == "games"
 	if _credits_panel:
 		_credits_panel.visible = tab == "credits"
+	if _history_panel:
+		_history_panel.visible = tab == "history"
 	if _profile_panel:
 		_profile_panel.visible = tab == "profile"
 	if tab == "profile":
 		_show_profile_sub(_profile_sub)
+	if tab == "history":
+		_ensure_history()
 	($Scroll as ScrollContainer).scroll_vertical = 0
-	var active: Control = _games_panel if tab == "games" else (_credits_panel if tab == "credits" else _profile_panel)
+	var active := _panel_for(tab)
 	if active:
 		UiMotion.fade_in(active)
+
+
+func _fit_tabs() -> void:
+	if _main_tabs == null or _main_tabs.get_child_count() == 0:
+		return
+	var shell := _main_tabs.get_child(0)
+	if shell.get_child_count() == 0:
+		return
+	var narrow := size.x < 560.0
+	var labels := {
+		"games": "Games",
+		"credits": "Credits" if narrow else "Requests",
+		"history": "History",
+		"profile": "Profile",
+	}
+	for child in shell.get_child(0).get_children():
+		if child is Button and (child as Button).has_meta("tab"):
+			var button := child as Button
+			button.text = str(labels.get(str(button.get_meta("tab")), button.text))
+			button.add_theme_font_size_override("font_size", 13 if narrow else 14)
 
 
 func _refresh_main_tab_styles() -> void:
@@ -401,6 +395,257 @@ func _refresh_main_tab_styles() -> void:
 		if child is Button and (child as Button).has_meta("tab"):
 			var button := child as Button
 			_style_tab_button(button, str(button.get_meta("tab")) == _tab)
+
+
+func _panel_for(tab: String) -> Control:
+	match tab:
+		"games":
+			return _games_panel
+		"credits":
+			return _credits_panel
+		"history":
+			return _history_panel
+		_:
+			return _profile_panel
+
+
+func _build_history_tab() -> void:
+	var card := PanelContainer.new()
+	UiTheme.paint_glass(card)
+	_history_panel.add_child(card)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	card.add_child(_inset(box, 16))
+	var title := Label.new()
+	title.text = "History"
+	UiTheme.style_title(title, 22)
+	box.add_child(title)
+	var copy := Label.new()
+	copy.text = "Recent rounds from your account. Credit requests stay on the Requests tab."
+	copy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiTheme.style_muted(copy)
+	box.add_child(copy)
+	var filters := HFlowContainer.new()
+	filters.add_theme_constant_override("h_separation", 8)
+	filters.add_theme_constant_override("v_separation", 8)
+	filters.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(filters)
+	_history_game = OptionButton.new()
+	_history_game.custom_minimum_size = Vector2(160, 44)
+	_history_game.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_history_game.item_selected.connect(func(_index: int) -> void: _render_history())
+	filters.add_child(_history_game)
+	_history_result = OptionButton.new()
+	_history_result.custom_minimum_size = Vector2(140, 44)
+	_history_result.add_item("All results")
+	_history_result.add_item("Won")
+	_history_result.add_item("Lost")
+	_history_result.add_item("Push")
+	_history_result.item_selected.connect(func(_index: int) -> void: _render_history())
+	filters.add_child(_history_result)
+	_history_refresh = Button.new()
+	_history_refresh.text = "Refresh"
+	_history_refresh.custom_minimum_size = Vector2(120, 44)
+	_history_refresh.pressed.connect(_reload_history)
+	filters.add_child(_history_refresh)
+	_history_status = Label.new()
+	_history_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiTheme.style_muted(_history_status)
+	box.add_child(_history_status)
+	_history_list = VBoxContainer.new()
+	_history_list.add_theme_constant_override("separation", 8)
+	_history_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(_history_list)
+	_fill_game_filter()
+	_show_history_state("Open this tab to load your rounds.", false)
+
+
+func _ensure_history() -> void:
+	if _history_loading or _history_loaded:
+		return
+	_reload_history()
+
+
+func _reload_history() -> void:
+	if _history_loading:
+		return
+	_history_loading = true
+	if _history_refresh:
+		_history_refresh.disabled = true
+	_show_history_state("Loading rounds...", false)
+	var response: Dictionary = await ApiClient.get_spin_history()
+	_history_loading = false
+	if _history_refresh:
+		_history_refresh.disabled = false
+	if not is_inside_tree():
+		return
+	if not response.ok:
+		_history_loaded = false
+		_spins = []
+		_show_history_state("History could not be loaded. Refresh to try again.", true)
+		push_error("Spin history failed. HTTP %d. %s" % [int(response.get("status", 0)), str(response.get("error", ""))])
+		return
+	var rows: Variant = response.data.get("spins", [])
+	_spins = rows if rows is Array else []
+	_history_loaded = true
+	_fill_game_filter()
+	_render_history()
+
+
+func _fill_game_filter() -> void:
+	if _history_game == null:
+		return
+	var selected := _history_game.get_item_text(_history_game.selected) if _history_game.item_count > 0 else "All games"
+	_history_game.clear()
+	_history_game.add_item("All games")
+	var seen: Array[String] = []
+	for entry in _spins:
+		if not entry is Dictionary:
+			continue
+		var name := str(entry.get("gameName", "")).strip_edges()
+		if name == "" or name in seen:
+			continue
+		seen.append(name)
+		_history_game.add_item(name)
+	var keep := 0
+	for index in _history_game.item_count:
+		if _history_game.get_item_text(index) == selected:
+			keep = index
+			break
+	_history_game.select(keep)
+
+
+func _render_history() -> void:
+	if _history_list == null:
+		return
+	for child in _history_list.get_children():
+		_history_list.remove_child(child)
+		child.free()
+	if _history_loading:
+		return
+	var rows := _filtered_spins()
+	if _spins.is_empty():
+		_show_history_state("No rounds yet. Play a game and it will show up here.", false)
+		return
+	if rows.is_empty():
+		_show_history_state("No rounds match these filters.", false)
+		return
+	_history_status.text = "%d round%s" % [rows.size(), "" if rows.size() == 1 else "s"]
+	_history_status.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+	for entry in rows:
+		if entry is Dictionary:
+			_history_list.add_child(_history_card(entry))
+
+
+func _filtered_spins() -> Array:
+	var game_name := "All games"
+	if _history_game and _history_game.selected >= 0:
+		game_name = _history_game.get_item_text(_history_game.selected)
+	var result_name := "All results"
+	if _history_result and _history_result.selected >= 0:
+		result_name = _history_result.get_item_text(_history_result.selected)
+	var selected: Array = []
+	for entry in _spins:
+		if not entry is Dictionary:
+			continue
+		var spin: Dictionary = entry
+		if game_name != "All games" and str(spin.get("gameName", "")) != game_name:
+			continue
+		if result_name != "All results" and _spin_status(spin) != result_name:
+			continue
+		selected.append(spin)
+	return selected
+
+
+func _history_card(spin: Dictionary) -> PanelContainer:
+	var status := _spin_status(spin)
+	var ink := UiTheme.COL_GOLD
+	if status == "Won":
+		ink = UiTheme.COL_GREEN
+	elif status == "Lost":
+		ink = UiTheme.COL_DANGER
+	var card := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.07, 0.09, 0.14, 0.94)
+	style.border_color = Color(ink, 0.55)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(14)
+	style.content_margin_left = 14
+	style.content_margin_right = 14
+	style.content_margin_top = 12
+	style.content_margin_bottom = 12
+	card.add_theme_stylebox_override("panel", style)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	card.add_child(box)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	box.add_child(head)
+	var name := Label.new()
+	name.text = str(spin.get("gameName", "Game"))
+	name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name.clip_text = true
+	name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name.add_theme_font_size_override("font_size", 18)
+	name.add_theme_color_override("font_color", UiTheme.COL_TEXT)
+	head.add_child(name)
+	var badge := Label.new()
+	badge.text = status
+	badge.add_theme_font_size_override("font_size", 14)
+	badge.add_theme_color_override("font_color", ink)
+	head.add_child(badge)
+	var when := Label.new()
+	when.text = _format_when(str(spin.get("createdAt", "")))
+	UiTheme.style_muted(when)
+	box.add_child(when)
+	var money := Label.new()
+	money.text = "Spent %s    Earned %s" % [
+		_whole_credits(spin.get("betAmount", 0)),
+		_whole_credits(spin.get("winAmount", 0)),
+	]
+	money.add_theme_font_size_override("font_size", 15)
+	money.add_theme_color_override("font_color", Color("F4F7FB"))
+	box.add_child(money)
+	return card
+
+
+func _spin_status(spin: Dictionary) -> String:
+	var bet := float(spin.get("betAmount", 0))
+	var win := float(spin.get("winAmount", 0))
+	var multiplier := float(spin.get("multiplier", 0))
+	if win <= 0.0:
+		return "Lost"
+	if bet > 0.0 and is_equal_approx(win, bet) and multiplier <= 1.01:
+		return "Push"
+	return "Won"
+
+
+func _whole_credits(value: Variant) -> String:
+	var amount := float(value)
+	if is_equal_approx(amount, round(amount)):
+		return str(int(round(amount)))
+	return "%.2f" % amount
+
+
+func _format_when(value: String) -> String:
+	if not value.contains("T"):
+		return value
+	var parts := value.split("T")
+	var clock := parts[1].replace("Z", "").replace("+00:00", "")
+	if clock.length() >= 5:
+		clock = clock.substr(0, 5)
+	return "%s   %s" % [parts[0], clock]
+
+
+func _show_history_state(text: String, failed: bool) -> void:
+	if _history_status:
+		_history_status.text = text
+		_history_status.add_theme_color_override("font_color", UiTheme.COL_DANGER if failed else UiTheme.COL_MUTED)
+	if _history_list == null:
+		return
+	for child in _history_list.get_children():
+		_history_list.remove_child(child)
+		child.free()
 
 
 func _build_credits_tab() -> void:
@@ -447,7 +692,7 @@ func _build_credits_tab() -> void:
 	UiTheme.style_muted(_request_feedback)
 	box.add_child(_request_feedback)
 	var history_title := Label.new()
-	history_title.text = "Request History · Pending / Approved / Rejected"
+	history_title.text = "Request history"
 	history_title.add_theme_font_size_override("font_size", 16)
 	history_title.add_theme_color_override("font_color", Color("E7C56A"))
 	box.add_child(history_title)
@@ -559,36 +804,11 @@ func _render_filters() -> void:
 	for child in _filters.get_children():
 		_filters.remove_child(child)
 		child.free()
-	_filter_scroller = ScrollContainer.new()
-	_filter_scroller.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_filter_scroller.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_filter_scroller.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	_filter_scroller.custom_minimum_size = Vector2(0, 64)
-	_filter_scroller.clip_contents = true
-	_filter_scroller.follow_focus = false
-	_filter_scroller.mouse_filter = Control.MOUSE_FILTER_STOP
-	_filters.add_child(_filter_scroller)
-	var shell := PanelContainer.new()
-	shell.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	shell.mouse_filter = Control.MOUSE_FILTER_PASS
-	var shell_style := StyleBoxFlat.new()
-	shell_style.bg_color = Color(0.05, 0.07, 0.12, 0.9)
-	shell_style.border_color = Color(0.45, 0.55, 0.75, 0.28)
-	shell_style.set_border_width_all(1)
-	shell_style.set_corner_radius_all(30)
-	shell_style.content_margin_left = 8
-	shell_style.content_margin_right = 8
-	shell_style.content_margin_top = 8
-	shell_style.content_margin_bottom = 8
-	shell_style.shadow_color = Color(0, 0, 0, 0.35)
-	shell_style.shadow_size = 12
-	shell.add_theme_stylebox_override("panel", shell_style)
-	_filter_scroller.add_child(shell)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	row.mouse_filter = Control.MOUSE_FILTER_PASS
-	shell.add_child(row)
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 8)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_filters.add_child(row)
 	for item in [
 		["ALL", "ALL"],
 		["SLOTS", "SLOTS"],
@@ -607,7 +827,6 @@ func _render_filters() -> void:
 		_style_filter_button(button, str(item[0]) == _filter)
 		button.pressed.connect(_set_filter.bind(str(item[0])))
 		row.add_child(button)
-	_filter_scroller.gui_input.connect(_on_category_input)
 	UiMotion.bind_tree(_filters)
 
 
@@ -651,68 +870,8 @@ func _style_filter_button(button: Button, selected: bool) -> void:
 	button.set_pressed_no_signal(selected)
 
 
-func _on_category_input(event: InputEvent) -> void:
-	if _filter_scroller == null:
-		return
-	if event is InputEventMouseButton:
-		var mouse := event as InputEventMouseButton
-		if mouse.button_index != MOUSE_BUTTON_LEFT:
-			return
-		if mouse.pressed:
-			_cat_dragging = true
-			_cat_axis_locked = false
-			_cat_horizontal = false
-			_cat_drag_from = mouse.position
-			_cat_scroll_from = _filter_scroller.scroll_horizontal
-			var page := $Scroll as ScrollContainer
-			_cat_page_scroll = page.scroll_vertical
-		else:
-			_cat_dragging = false
-			_cat_axis_locked = false
-		accept_event()
-		return
-	if event is InputEventScreenTouch:
-		var touch := event as InputEventScreenTouch
-		if touch.pressed:
-			_cat_dragging = true
-			_cat_axis_locked = false
-			_cat_horizontal = false
-			_cat_drag_from = touch.position
-			_cat_scroll_from = _filter_scroller.scroll_horizontal
-			_cat_page_scroll = ($Scroll as ScrollContainer).scroll_vertical
-		else:
-			_cat_dragging = false
-			_cat_axis_locked = false
-		accept_event()
-		return
-	if not _cat_dragging:
-		return
-	var pos := Vector2.ZERO
-	var relative := Vector2.ZERO
-	if event is InputEventMouseMotion:
-		var motion := event as InputEventMouseMotion
-		pos = motion.position
-		relative = motion.relative
-	elif event is InputEventScreenDrag:
-		var drag := event as InputEventScreenDrag
-		pos = drag.position
-		relative = drag.relative
-	else:
-		return
-	if not _cat_axis_locked:
-		if absf(relative.x) < 2.0 and absf(relative.y) < 2.0:
-			return
-		_cat_axis_locked = true
-		_cat_horizontal = absf(relative.x) >= absf(relative.y) * 0.85
-	if _cat_horizontal:
-		var max_scroll := maxi(int(_filter_scroller.get_child(0).get_combined_minimum_size().x - _filter_scroller.size.x), 0)
-		_filter_scroller.scroll_horizontal = clampi(int(_cat_scroll_from - (pos.x - _cat_drag_from.x)), 0, max_scroll)
-		($Scroll as ScrollContainer).scroll_vertical = _cat_page_scroll
-		accept_event()
-		get_viewport().set_input_as_handled()
-
-
 func _set_filter(category: String) -> void:
+	_show_lobby_note("")
 	_filter = category
 	_style_filter_tree(_filters, category)
 	_render_games()
@@ -734,8 +893,6 @@ func _style_filter_tree(node: Node, category: String) -> void:
 
 
 func _render_games() -> void:
-	if _games_title:
-		_games_title.text = "Games"
 	var games := _filtered_games()
 	for child in _game_list.get_children():
 		if child == _carousel:
@@ -758,7 +915,7 @@ func _render_games() -> void:
 		_game_list.add_child(_carousel)
 		if not _carousel.play_pressed.is_connected(_open_game):
 			_carousel.play_pressed.connect(_open_game)
-	_carousel.setup(games, _lobby_card_size(), "Game Library", _filter_subtitle())
+	_carousel.setup(games, _lobby_card_size(), "", _filter_subtitle())
 
 
 func _filter_subtitle() -> String:
@@ -778,13 +935,16 @@ func _filter_subtitle() -> String:
 
 
 func _filtered_games() -> Array:
+	# Keep filter tabs disjoint so the same game never appears under two categories.
 	var buckets := {
-		"SLOTS": ["fruit-spin", "diamond-spin", "lucky-dollar", "golden-fortune"],
-		"SPIN": ["lucky-wheel", "lucky-spin", "jackpot-wheel", "bonus-burst", "prize-spinner"],
-		"ARCADE": ["coin-flip", "treasure-box", "cash-match", "mystery-box", "diamond-drop"],
+		"SLOTS": ["lucky-dollar", "golden-fortune"],
+		"SPIN": ["lucky-spin", "lucky-wheel", "jackpot-wheel", "fruit-spin", "diamond-spin", "prize-spinner", "bonus-burst"],
+		"ARCADE": ["coin-flip", "treasure-box", "cash-match", "diamond-drop"],
 		"ACTION": ["fishing", "target-blast", "aeroplane-rush", "bottle-blast", "dollar-rush"],
 		"CASUAL": ["scratch-mania", "higher-card", "dice", "lucky-number"],
 	}
+	# Near-clones of other catalog games — keep one playable entry per mechanic.
+	var hidden_duplicates := ["mystery-box"]
 	var order: Array = []
 	for key in ["SLOTS", "SPIN", "ARCADE", "ACTION", "CASUAL"]:
 		for slug in buckets[key]:
@@ -792,8 +952,12 @@ func _filtered_games() -> Array:
 				order.append(slug)
 	var by_slug: Dictionary = {}
 	for game in _games:
-		if game is Dictionary:
-			by_slug[str(game.get("slug", ""))] = game
+		if not game is Dictionary:
+			continue
+		var slug := str(game.get("slug", ""))
+		if slug in hidden_duplicates:
+			continue
+		by_slug[slug] = game
 	var selected: Array = []
 	if _filter == "ALL":
 		for slug in order:
@@ -803,8 +967,9 @@ func _filtered_games() -> Array:
 			if not game is Dictionary:
 				continue
 			var slug := str(game.get("slug", ""))
-			if not order.has(slug):
-				selected.append(game)
+			if slug in hidden_duplicates or order.has(slug):
+				continue
+			selected.append(game)
 		return selected
 	var wanted: Array = buckets.get(_filter, [])
 	for slug in wanted:
@@ -963,14 +1128,26 @@ func _fill_request_history(requests: Array) -> void:
 			row.text = "%s   ·   %d credits   ·   %s" % [status, amount, stamp]
 		else:
 			row.text = "%s   ·   %d credits   ·   %s\n%s" % [status, amount, stamp, note]
+		var ink := UiTheme.COL_GOLD
 		match status:
 			"APPROVED":
-				row.add_theme_color_override("font_color", UiTheme.COL_GREEN)
+				ink = UiTheme.COL_GREEN
 			"REJECTED":
-				row.add_theme_color_override("font_color", UiTheme.COL_DANGER)
-			_:
-				row.add_theme_color_override("font_color", UiTheme.COL_GOLD)
-		_request_history.add_child(row)
+				ink = UiTheme.COL_DANGER
+		row.add_theme_color_override("font_color", ink)
+		var card := PanelContainer.new()
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.08, 0.1, 0.16, 0.92)
+		style.border_color = Color(ink, 0.45)
+		style.set_border_width_all(1)
+		style.set_corner_radius_all(12)
+		style.content_margin_left = 12
+		style.content_margin_right = 12
+		style.content_margin_top = 10
+		style.content_margin_bottom = 10
+		card.add_theme_stylebox_override("panel", style)
+		card.add_child(row)
+		_request_history.add_child(card)
 
 
 func _submit_credit_request() -> void:
@@ -1056,13 +1233,11 @@ func _open_game(game: Dictionary) -> void:
 	if _opening:
 		return
 	if game.has("enabled") and not bool(game.get("enabled", true)):
-		if _request_feedback:
-			_request_feedback.text = "%s is currently unavailable for your account." % str(game.get("name", "This game"))
-			_request_feedback.add_theme_color_override("font_color", UiTheme.COL_DANGER)
-		_show_tab("credits")
+		_show_lobby_note("%s is currently unavailable for your account." % str(game.get("name", "This game")))
 		return
 	var min_bet := int(game.get("minimumBet", 1))
 	if _balance < min_bet:
+		_show_lobby_note("Not enough credits. Available %d · Required %d." % [_balance, min_bet])
 		if _request_feedback:
 			_request_feedback.text = "Not enough credits. Available %d · Required %d." % [_balance, min_bet]
 			_request_feedback.add_theme_color_override("font_color", UiTheme.COL_DANGER)
@@ -1083,6 +1258,14 @@ func _open_game(game: Dictionary) -> void:
 	}
 	AppState.selected_slot_id = str(game.get("slug", ""))
 	AppState.go_machine()
+
+
+func _show_lobby_note(text: String) -> void:
+	if _lobby_note == null:
+		return
+	_lobby_note.text = text
+	_lobby_note.visible = text != ""
+	_lobby_note.add_theme_color_override("font_color", UiTheme.COL_DANGER)
 
 
 func _initials(player_name: String) -> String:

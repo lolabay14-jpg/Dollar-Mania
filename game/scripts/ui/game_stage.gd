@@ -1,5 +1,7 @@
 extends Control
 
+signal _rush_expired
+
 @onready var _column: MarginContainer = %Column
 
 var _game_id := ""
@@ -71,9 +73,45 @@ var _cell_labels: Array[Label] = []
 var _burst_fill: ColorRect
 var _dice: Array = []
 var _number_label: Label
+var _phase := "brief"
+var _paused := false
+var _cancel_round := false
+var _charged := false
+var _score_set := false
+var _round_score := 0
+var _settling := false
+var _results_posted := false
+var _action_go := false
+var _awarded := 0.0
+var _flow: Control
+var _flow_panel: PanelContainer
+var _flow_kicker: Label
+var _flow_title: Label
+var _flow_body: Label
+var _flow_scroll: ScrollContainer
+var _flow_primary: Button
+var _flow_secondary: Button
+var _burst: BonusBurstBoard
+var _wheel_caption: Label
+var _card_buttons: Array[Button] = []
+var _match_live := false
+var _match_done := false
+var _match_lock := false
+var _match_first := -1
+var _match_cards: Array = []
+var _match_hits: Array = []
+var _match_open: Array[bool] = []
+var _drop_live := false
+var _drop_index := -1
+var _drop_caught := -1
+var _rush_index := 0
+var _rush_wait := 0.0
+var _rush_left := 0.0
+var _rush_arm := 0.0
 
 
 func _ready() -> void:
+	_rush_expired.connect(_on_rush_expired)
 	UiTheme.apply(self)
 	$Background.color = UiTheme.COL_BG
 	# Atmosphere only — mute promotional background text during gameplay.
@@ -90,7 +128,9 @@ func _fit() -> void:
 	var column_width := minf(maxf(view.x - 8.0, 280.0), 760.0)
 	ScreenLayout.fit_column(_column, column_width)
 	if _back:
-		_back.text = "Back to Games" if view.x >= 640.0 else "Games"
+		var wide := view.x >= 640.0
+		_back.text = "Back to Games" if wide else "Games"
+		_back.custom_minimum_size = Vector2(148 if wide else 88, 48)
 	if _title:
 		_title.add_theme_font_size_override("font_size", 24 if view.x < 520.0 else 30)
 	_apply_layout()
@@ -100,6 +140,9 @@ func _fit() -> void:
 			_board_inset.add_theme_constant_override(side, pad)
 	_layout_board()
 	_place_dock()
+	if _flow_panel:
+		_flow_panel.custom_minimum_size.x = clampf(view.x - 36.0, 280.0, 440.0)
+	_fit_flow_body()
 
 
 func _load_game() -> void:
@@ -122,6 +165,10 @@ func _load_game() -> void:
 	UiMotion.bind_tree(_board)
 	_refresh_live()
 	await _enforce_access()
+	if _unavailable or _leaving or not is_inside_tree():
+		_hide_flow()
+		return
+	_open_brief()
 
 
 func _enforce_access() -> void:
@@ -158,6 +205,7 @@ func _show_unavailable() -> void:
 	_status.add_theme_color_override("font_color", UiTheme.COL_DANGER)
 	if _block_overlay and is_instance_valid(_block_overlay):
 		_block_overlay.queue_free()
+	_hide_flow()
 	_block_overlay = PanelContainer.new()
 	_block_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_block_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -263,6 +311,8 @@ func _build_shell() -> void:
 	_title = Label.new()
 	_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_title.clip_text = true
+	_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	UiTheme.style_title(_title, 30)
 	header.add_child(_title)
@@ -285,6 +335,7 @@ func _build_shell() -> void:
 	credit_box.add_child(_credits)
 	credit_box.add_child(_delta)
 	var wallet_chip := PanelContainer.new()
+	wallet_chip.size_flags_horizontal = Control.SIZE_SHRINK_END
 	wallet_chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var chip_style := StyleBoxFlat.new()
 	chip_style.bg_color = Color("141E32")
@@ -450,6 +501,12 @@ func _build_board() -> void:
 	_choice = null
 	_dice.clear()
 	_number_label = null
+	_burst = null
+	_wheel_caption = null
+	_card_buttons.clear()
+	_match_live = false
+	_match_done = true
+	_drop_live = false
 	match _slug:
 		"lucky-dollar":
 			_build_reels(3)
@@ -488,7 +545,7 @@ func _build_board() -> void:
 		"coin-flip":
 			_build_coin()
 		"treasure-box":
-			_build_choices(["Box 1", "Box 2", "Box 3", "Box 4"], [0, 1, 2, 3])
+			_build_treasure()
 		"cash-match":
 			_build_cards(6, "—")
 		"diamond-drop":
@@ -503,6 +560,15 @@ func _build_board() -> void:
 			note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			UiTheme.style_muted(note)
 			_board.add_child(note)
+
+
+func _build_treasure() -> void:
+	_chest = MysteryChest.new()
+	_chest.gui_input.connect(_poke_action)
+	_chest.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_chest.custom_minimum_size = Vector2(0, 180)
+	_board.add_child(_chest)
+	_build_choices(["Box 1", "Box 2", "Box 3", "Box 4"], [0, 1, 2, 3])
 
 
 func _build_reels(count: int) -> void:
@@ -567,9 +633,19 @@ func _build_cards(count: int, hidden: String, scratch := false) -> void:
 			button.custom_minimum_size = Vector2(0, 128)
 			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			button.disabled = true
-			button.pressed.connect(_scratch_at.bind(index))
+			button.cleared.connect(_scratch_at.bind(index))
 			grid.add_child(button)
 			_scratch_buttons.append(button)
+		elif _slug == "cash-match":
+			var card_button := Button.new()
+			card_button.text = hidden
+			card_button.add_theme_font_size_override("font_size", 28)
+			card_button.custom_minimum_size = Vector2(0, 112)
+			card_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			card_button.disabled = true
+			card_button.pressed.connect(_flip_card.bind(index))
+			grid.add_child(card_button)
+			_card_buttons.append(card_button)
 		else:
 			var panel := PanelContainer.new()
 			panel.custom_minimum_size = Vector2(0, 120)
@@ -608,7 +684,14 @@ func _build_wheel(diameter: float, style: String) -> void:
 	elif style == "spinner":
 		_wheel.segments = [0, 1, 3, 0, 2, 8, 0, 4]
 		_wheel.symbols = ["coin", "star", "diamond", "coin", "seven", "bonus", "star", "dollar"]
+	_wheel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_board.add_child(_wheel)
+	_wheel_caption = Label.new()
+	_wheel_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_wheel_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_wheel_caption.add_theme_font_size_override("font_size", 20)
+	_wheel_caption.add_theme_color_override("font_color", UiTheme.COL_GOLD)
+	_board.add_child(_wheel_caption)
 
 
 func _build_sky() -> void:
@@ -641,6 +724,7 @@ func _build_targets() -> void:
 
 func _build_mystery() -> void:
 	_chest = MysteryChest.new()
+	_chest.gui_input.connect(_poke_action)
 	_chest.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_board.add_child(_chest)
 
@@ -655,6 +739,7 @@ func _build_dice() -> void:
 		die.custom_minimum_size = Vector2(120, 120)
 		die.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		die.set_face(face)
+		die.rolled.connect(_mark_action)
 		row.add_child(die)
 		_dice.append(die)
 
@@ -665,6 +750,8 @@ func _build_lucky_number() -> void:
 	_number_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_number_label.add_theme_font_size_override("font_size", 42)
 	_number_label.add_theme_color_override("font_color", UiTheme.COL_GOLD)
+	_number_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_number_label.gui_input.connect(_poke_action)
 	_board.add_child(_number_label)
 	var labels: Array = []
 	var values: Array = []
@@ -684,6 +771,7 @@ func _build_coin() -> void:
 	var disc := CoinFace.new()
 	disc.custom_minimum_size = Vector2(180, 180)
 	disc.set_side("edge")
+	disc.swiped.connect(_mark_action)
 	center.add_child(disc)
 	_coin_disc = disc
 	_build_choices(["Heads", "Tails"], ["HEADS", "TAILS"])
@@ -722,6 +810,7 @@ func _build_higher_card() -> void:
 	_player_card = PlayingCard.new()
 	_player_card.show_back()
 	_player_card.rotation_degrees = 6.0
+	_player_card.gui_input.connect(_poke_action)
 	row.add_child(_player_card)
 	var yours := Label.new()
 	yours.text = "Your hand"
@@ -731,22 +820,10 @@ func _build_higher_card() -> void:
 
 
 func _build_burst() -> void:
-	var label := Label.new()
-	label.text = "Collect the burst"
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 40)
-	label.add_theme_color_override("font_color", UiTheme.COL_GOLD)
-	_board.add_child(label)
-	_cell_labels.append(label)
-	var bar := ColorRect.new()
-	bar.custom_minimum_size = Vector2(0, 18)
-	bar.color = Color("243352")
-	_board.add_child(bar)
-	_burst_fill = ColorRect.new()
-	_burst_fill.color = UiTheme.COL_GOLD
-	_burst_fill.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_burst_fill.anchor_right = 0.0
-	bar.add_child(_burst_fill)
+	_burst = BonusBurstBoard.new()
+	_burst.custom_minimum_size = Vector2(0, 360)
+	_burst.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_board.add_child(_burst)
 
 
 func _select_choice(value: Variant) -> void:
@@ -761,10 +838,11 @@ func _select_choice(value: Variant) -> void:
 
 
 func _change_bet(direction: int) -> void:
-	if _busy:
+	if _busy or _phase != "ready":
 		return
 	_bet = clampi(_bet + direction * _step(), _min, _max)
 	_refresh_bet()
+	_note_entry()
 
 
 func _step() -> int:
@@ -781,12 +859,44 @@ func _refresh_bet() -> void:
 		_limits.text = "Min %s    Max %s" % [_amount(_min), _amount(_max)]
 	if _play == null:
 		return
-	if _replay:
+	if _unavailable:
+		_play.text = "Unavailable"
+		_play.disabled = true
+		return
+	if _settling:
+		_play.text = "Finishing"
+		_play.disabled = true
+		return
+	if _paused:
+		_play.text = "Resume"
+		_play.disabled = false
+	elif _phase == "brief":
+		_play.text = "Continue"
+		_play.disabled = _game_id == ""
+	elif _phase == "sweep":
+		_play.text = "Stop"
+		_play.disabled = false
+	elif _drop_live:
+		_play.text = "Catch"
+		_play.disabled = false
+	elif _scratch_mode or _match_live:
+		_play.text = "Reveal"
+		_play.disabled = false
+	elif _phase == "live" and _pausable():
+		_play.text = "Pause"
+		_play.disabled = false
+	elif _phase == "countdown" or _phase == "live":
+		_play.text = "Playing"
+		_play.disabled = true
+	elif _phase == "result" or _replay:
 		_play.text = "Play Again"
+		_play.disabled = false
 	elif _retry:
 		_play.text = "Retry"
+		_play.disabled = false
 	else:
 		_play.text = "%s   ·   %s" % [_action_name(), _amount(_bet)]
+		_play.disabled = _game_id == ""
 
 
 func _action_name() -> String:
@@ -824,14 +934,38 @@ func _action_name() -> String:
 
 
 func _needs_choice() -> bool:
-	return _slug == "dollar-rush" or _slug == "coin-flip" or _slug == "treasure-box" or _slug == "lucky-number"
+	return _slug == "coin-flip" or _slug == "treasure-box" or _slug == "lucky-number"
 
 
 func _on_play() -> void:
+	if _settling:
+		return
 	if _scratch_mode:
 		_reveal_scratch()
 		return
-	if _busy or _unavailable or _game_id == "":
+	if _match_live:
+		_match_done = true
+		return
+	if _drop_live:
+		_drop_caught = _drop_index
+		return
+	if _paused:
+		_toggle_pause()
+		return
+	if _phase == "sweep":
+		if _lock_rush():
+			await _arm_and_play()
+		return
+	if _phase == "live" and _pausable():
+		_toggle_pause()
+		return
+	if _phase == "brief":
+		_show_ready()
+		return
+	if _phase == "result":
+		_replay_round()
+		return
+	if _busy or _unavailable or _phase != "ready" or _game_id == "":
 		return
 	if _needs_choice() and _choice == null:
 		_status.text = "Make a selection first."
@@ -840,66 +974,19 @@ func _on_play() -> void:
 	if _balance >= 0.0 and _balance < float(_bet):
 		_show_low_credits()
 		return
-	_busy = true
-	_replay = false
-	_retry = false
-	_play.disabled = true
-	_play.modulate = Color(1.0, 0.96, 0.86)
-	_set_choices_disabled(true)
-	_result.text = ""
-	_delta.text = ""
-	if _result_panel:
-		_result_panel.visible = false
-		_result_panel.scale = Vector2.ONE
-		_result_panel.modulate.a = 1.0
-	_status.add_theme_color_override("font_color", UiTheme.COL_MUTED)
-	if _slug == "fishing" and _pond:
-		_pond.show_loading()
-		_status.text = "Diving..."
-	elif _slug == "target-blast" and _gallery:
-		_gallery.show_loading()
-		_status.text = "Arming..."
-	elif _slug == "aeroplane-rush" and _sky:
-		_sky.show_loading()
-		_status.text = "Boarding..."
-	elif _slug == "bottle-blast" and _bottles:
-		_bottles.show_loading()
-		_status.text = "Setting bottles..."
-	else:
-		_status.text = "Placing bet..."
-		_pulse_board()
-	var request_id := "play-%s-%s" % [str(Time.get_ticks_msec()), str(randi() % 1000000)]
-	var sent: Variant = _choice if _needs_choice() else null
-	var response: Dictionary = await ApiClient.spin(_game_id, _bet, sent, request_id)
-	if not is_inside_tree():
+	if _slug == "dollar-rush":
+		_start_rush()
 		return
-	if not response.ok:
-		var message := str(response.error)
-		if message == "Insufficient credits":
-			_busy = false
-			_play.disabled = false
-			_play.modulate = Color.WHITE
-			_set_choices_disabled(false)
-			_rest_arcade()
-			_show_low_credits()
-			return
-		if message.to_lower().contains("unavailable") or int(response.get("status", 0)) == 403:
-			_show_unavailable()
-			return
-		_finish_turn(_friendly_error(message), true)
-		return
-	_held = response.data
-	await _animate(response.data)
-	if not is_inside_tree() or _leaving:
-		return
-	_show_result(response.data)
-	_replay = true
-	_finish_turn(str(response.data.get("title", "Ready")), false)
+	await _arm_and_play()
 
 
 func _exit_tree() -> void:
+	_leaving = true
 	_busy = true
+	_cancel_round = true
 	_scratch_done = true
+	_match_done = true
+	_drop_live = false
 	if _balance_tween and _balance_tween.is_valid():
 		_balance_tween.kill()
 
@@ -907,7 +994,12 @@ func _exit_tree() -> void:
 func _leave() -> void:
 	_leaving = true
 	_busy = true
+	_cancel_round = true
 	_scratch_done = true
+	_scratch_mode = false
+	_match_done = true
+	_match_live = false
+	_drop_live = false
 	if _balance_tween and _balance_tween.is_valid():
 		_balance_tween.kill()
 	AppState.go_player()
@@ -923,16 +1015,28 @@ func _friendly_error(message: String) -> String:
 func _finish_turn(message: String, failed: bool) -> void:
 	_busy = false
 	_retry = failed
-	_play.disabled = _game_id == ""
+	_paused = false
+	_apply_pause()
 	_play.modulate = Color.WHITE
-	_set_choices_disabled(false)
 	if failed:
+		_phase = "ready"
+		_charged = false
+		_set_choices_disabled(false)
+		_set_bets_enabled(true)
 		_rest_arcade()
+		_hide_flow()
+		_lock_scroll(false)
+	else:
+		_set_choices_disabled(true)
+		_set_bets_enabled(false)
 	_status.text = message
 	_status.add_theme_color_override("font_color", UiTheme.COL_DANGER if failed else UiTheme.COL_TEXT)
 	if failed:
 		_present_result("Unable to play", message, UiTheme.COL_DANGER)
 	_refresh_bet()
+	_fit()
+	if _phase == "result" and _flow and _flow.visible:
+		_flow.move_to_front()
 
 
 func _set_choices_disabled(disabled: bool) -> void:
@@ -973,7 +1077,7 @@ func _animate(data: Dictionary) -> void:
 		"boxes":
 			await _animate_boxes(presentation)
 		"match":
-			await _reveal_cells(presentation.get("cards", []), false, presentation.get("matched", []))
+			await _play_match(presentation)
 		"drop":
 			await _animate_drop(presentation)
 		"burst":
@@ -990,54 +1094,64 @@ func _animate_reels(data: Dictionary) -> void:
 	stopped.fill(false)
 	var elapsed := 0.0
 	var spinning := true
+	_status.text = "Tap a reel to stop it"
+	for spin_reel in _reels:
+		if spin_reel is ReelView:
+			spin_reel.set_stoppable(true)
 	while spinning:
 		await get_tree().process_frame
-		if not is_inside_tree():
+		if not is_inside_tree() or _leaving:
 			return
+		if _paused:
+			continue
 		var delta := clampf(get_process_delta_time(), 0.0, 0.034)
 		elapsed += delta
 		spinning = false
 		for index in _reels.size():
-			var stop_at := (0.22 + float(index) * 0.07) if _quick else (0.42 + float(index) * 0.13)
+			var reel: ReelView = _reels[index]
+			var stop_at := (0.55 + float(index) * 0.28) if _quick else (1.15 + float(index) * 0.55)
+			if not stopped[index] and reel.consume_stop():
+				var early: Array = grid[index] if index < grid.size() and grid[index] is Array else ["coin", "dollar", "star"]
+				reel.land(early)
+				stopped[index] = true
+				continue
 			if elapsed < stop_at:
 				spinning = true
 				var pace := clampf(elapsed / stop_at, 0.0, 1.0)
 				var speed := sin(pace * PI) * (1680.0 if _quick else 980.0)
-				_reels[index].advance(maxf(speed, 240.0) * delta, rules)
+				reel.advance(maxf(speed, 240.0) * delta, rules)
 			elif not stopped[index]:
 				var column: Array = grid[index] if index < grid.size() and grid[index] is Array else ["coin", "dollar", "star"]
-				_reels[index].land(column)
+				reel.land(column)
 				stopped[index] = true
-	await get_tree().create_timer(0.16).timeout
+	for spin_reel in _reels:
+		if spin_reel is ReelView:
+			spin_reel.set_stoppable(false)
+	await get_tree().create_timer(0.7).timeout
 	if not is_inside_tree():
 		return
 	var highlights: Array = data.get("highlights", [])
 	for index in _reels.size():
 		_reels[index].highlight([1] if _has_int(highlights, index) else [])
+	_score_set = true
+	_round_score = int(round(float(data.get("multiplier", 0.0))))
 
 
 func _animate_rush(presentation: Dictionary) -> void:
 	var winning := int(presentation.get("winningLane", -1))
-	_status.text = "3"
-	await get_tree().create_timer(0.22).timeout
-	if not is_inside_tree():
-		return
-	_status.text = "2"
-	await get_tree().create_timer(0.22).timeout
-	if not is_inside_tree():
-		return
-	_status.text = "1"
-	for step in 4:
-		for index in _choice_buttons.size():
-			var lit: bool = step % 2 == 0
-			_choice_buttons[index].modulate = Color(1.12, 1.05, 0.72) if lit else Color.WHITE
-		await get_tree().create_timer(0.06).timeout
-		if not is_inside_tree():
-			return
+	var hit := bool(presentation.get("hit", false))
+	_score_set = true
+	_round_score = 1 if hit else 0
 	for index in _choice_buttons.size():
 		_choice_buttons[index].modulate = Color.WHITE
 		if index == winning:
 			_choice_buttons[index].theme_type_variation = "PrimaryButton"
+			_choice_buttons[index].modulate = Color("D9FFE8")
+		elif index == _rush_index and not hit:
+			_choice_buttons[index].modulate = Color("FFD5DC")
+	_status.text = "Lane hit" if hit else "Missed the rush. No payout."
+	if not await _wait(0.45):
+		return
 
 
 func _animate_wheel(presentation: Dictionary) -> void:
@@ -1049,20 +1163,47 @@ func _animate_wheel(presentation: Dictionary) -> void:
 	_wheel.style = str(presentation.get("kind", _wheel.style))
 	_wheel.winner = -1
 	_wheel.spin_angle = 0.0
+	_wheel.flicked = false
+	_wheel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_status.text = "Flick the wheel"
+	var armed_for := 0.0
+	while not _wheel.flicked and armed_for < 2.4:
+		await get_tree().process_frame
+		if not is_inside_tree() or _leaving:
+			return
+		if _paused:
+			continue
+		armed_for += clampf(get_process_delta_time(), 0.0, 0.034)
+	_wheel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var count := maxi(segments.size(), 1)
 	var index := clampi(int(presentation.get("index", 0)), 0, count - 1)
 	var sweep := TAU / float(count)
-	var spins := 2.0 if _quick else (4.0 if str(presentation.get("kind", "")) == "jackpot" else 3.0)
+	var kind := str(presentation.get("kind", ""))
+	var flick := clampf(_wheel.flick_power, 1.0, 1.8) if _wheel.flicked else 1.0
+	var spins := (2.0 if _quick else (5.0 if kind == "jackpot" else 4.0)) + flick
 	var target := -PI / 2.0 - sweep * (float(index) + 0.5) - TAU * spins
 	var tween := create_tween()
-	var duration := 0.55 if _quick else (1.45 if str(presentation.get("kind", "")) == "jackpot" else 1.05)
+	var duration := 0.6 if _quick else (1.75 if kind == "jackpot" else 1.35)
 	tween.tween_property(_wheel, "spin_angle", target, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_honor_pause(tween)
 	await tween.finished
-	if is_inside_tree():
+	if is_inside_tree() and not _leaving:
 		_wheel.winner = index
+		var segment := float(segments[index]) if index < segments.size() else 0.0
+		var symbol := ""
+		if index < _wheel.symbols.size():
+			symbol = str(_wheel.symbols[index]).capitalize()
+		_score_set = true
+		_round_score = int(round(segment))
+		if _wheel_caption:
+			if segment <= 0.0:
+				_wheel_caption.text = "No prize" if symbol == "" else "%s  ·  No prize" % symbol
+			else:
+				_wheel_caption.text = "%s  ·  %sx" % [symbol if symbol != "" else "Segment", _amount(segment)]
 		var nudge := create_tween()
 		nudge.tween_property(_wheel, "pointer_drop", 10.0, 0.08)
 		nudge.tween_property(_wheel, "pointer_drop", 0.0, 0.14)
+		_honor_pause(nudge)
 		await nudge.finished
 
 
@@ -1070,8 +1211,10 @@ func _animate_fishing(presentation: Dictionary) -> void:
 	if _pond == null:
 		return
 	_status.text = "Fish incoming"
-	await _pond.play_round(presentation, _bet, float(_held.get("winAmount", 0)), maxf(_balance, 0.0))
+	await _pond.play_round(presentation, _bet, float(_held.get("winAmount", 0)), maxf(_balance, 0.0), true)
 	if is_inside_tree():
+		_score_set = true
+		_round_score = _pond.round_score()
 		_status.text = str(presentation.get("name", "Round complete"))
 
 
@@ -1079,8 +1222,10 @@ func _animate_flight(presentation: Dictionary) -> void:
 	if _sky == null:
 		return
 	_status.text = "Wheels up"
-	await _sky.play_round(presentation, _bet, float(_held.get("winAmount", 0)), maxf(_balance, 0.0))
+	await _sky.play_round(presentation, _bet, float(_held.get("winAmount", 0)), maxf(_balance, 0.0), true)
 	if is_inside_tree():
+		_score_set = true
+		_round_score = _sky.round_score()
 		_status.text = "Flight complete"
 
 
@@ -1088,8 +1233,10 @@ func _animate_bottles(presentation: Dictionary) -> void:
 	if _bottles == null:
 		return
 	_status.text = "Bottles live"
-	await _bottles.play_round(presentation, _bet, float(_held.get("winAmount", 0)), maxf(_balance, 0.0))
+	await _bottles.play_round(presentation, _bet, float(_held.get("winAmount", 0)), maxf(_balance, 0.0), true)
 	if is_inside_tree():
+		_score_set = true
+		_round_score = _bottles.round_score()
 		_status.text = "Round complete"
 
 
@@ -1097,8 +1244,10 @@ func _animate_targets(presentation: Dictionary) -> void:
 	if _gallery == null:
 		return
 	_status.text = "Targets live"
-	await _gallery.play_round(presentation, _bet, float(_held.get("winAmount", 0)), maxf(_balance, 0.0))
+	await _gallery.play_round(presentation, _bet, float(_held.get("winAmount", 0)), maxf(_balance, 0.0), true)
 	if is_inside_tree():
+		_score_set = true
+		_round_score = _gallery.round_score()
 		_status.text = "Round complete"
 
 
@@ -1108,7 +1257,9 @@ func _animate_mystery(presentation: Dictionary) -> void:
 	_chest.prize = -1.0
 	_chest.open_amount = 0.0
 	_chest.shake = 0.7
-	_status.text = "The box is shaking"
+	_chest.mouse_filter = Control.MOUSE_FILTER_STOP
+	await _await_action(1.6, "Tap the chest to open it")
+	_chest.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	await get_tree().create_timer(0.55).timeout
 	if not is_inside_tree():
 		return
@@ -1124,6 +1275,13 @@ func _animate_mystery(presentation: Dictionary) -> void:
 
 func _animate_dice(presentation: Dictionary) -> void:
 	var faces: Array = presentation.get("dice", []) if presentation.get("dice", []) is Array else []
+	for die in _dice:
+		if die is DieFace:
+			die.arm(true)
+	await _await_action(1.8, "Tap a die to roll")
+	for die in _dice:
+		if die is DieFace:
+			die.arm(false)
 	for step in 8:
 		for index in _dice.size():
 			var die: DieFace = _dice[index]
@@ -1142,6 +1300,9 @@ func _animate_number(presentation: Dictionary) -> void:
 	if _number_label == null:
 		return
 	var draw := clampi(int(presentation.get("draw", 1)), 1, 10)
+	_number_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	await _await_action(1.6, "Tap the number to stop the draw")
+	_number_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for step in 8:
 		_number_label.text = str(1 + (step % 10))
 		await get_tree().create_timer(0.06).timeout
@@ -1154,36 +1315,63 @@ func _animate_number(presentation: Dictionary) -> void:
 func _animate_coin(presentation: Dictionary) -> void:
 	if _coin_disc == null:
 		return
-	if _coin_disc:
-		_coin_disc.pivot_offset = _coin_disc.custom_minimum_size * 0.5
-	for step in 4:
-		if _coin_disc and _coin_disc.has_method("set_side"):
-			var side := "heads"
-			if step % 2 == 0:
-				side = "edge"
+	_coin_disc.pivot_offset = _coin_disc.size * 0.5 if _coin_disc.size.x > 1.0 else _coin_disc.custom_minimum_size * 0.5
+	if _coin_disc.has_method("arm_swipe"):
+		_coin_disc.arm_swipe(true)
+		await _await_action(2.2, "Swipe the coin to toss it")
+		_coin_disc.arm_swipe(false)
+	_coin_disc.modulate = Color.WHITE
+	for step in 6:
+		var side := "edge" if step % 2 == 0 else "heads"
+		if _coin_disc.has_method("set_side"):
 			_coin_disc.set_side(side)
-			var flip := create_tween()
-			flip.tween_property(_coin_disc, "scale:x", 0.08, 0.05)
-			await flip.finished
-			if not is_inside_tree():
-				return
-			var back := create_tween()
-			back.tween_property(_coin_disc, "scale:x", 1.0, 0.05)
-			await back.finished
-		if not is_inside_tree():
+		var flip := create_tween()
+		flip.tween_property(_coin_disc, "scale:x", 0.08, 0.06)
+		_honor_pause(flip)
+		await flip.finished
+		if not is_inside_tree() or _leaving:
+			return
+		var back := create_tween()
+		back.tween_property(_coin_disc, "scale:x", 1.0, 0.07).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		_honor_pause(back)
+		await back.finished
+		if not is_inside_tree() or _leaving:
 			return
 	var face := str(presentation.get("face", ""))
-	if _coin_disc and _coin_disc.has_method("set_side"):
+	var call := str(presentation.get("call", ""))
+	if _coin_disc.has_method("set_side"):
 		_coin_disc.set_side(face)
 	var won: bool = bool(presentation.get("won", false))
-	if _coin_disc:
-		_coin_disc.modulate = Color("D9FFE8") if won else Color("FFD5DC")
-	_status.text = "Heads" if face == "HEADS" else "Tails"
+	_coin_disc.modulate = Color("D9FFE8") if won else Color("FFD5DC")
+	var settle := create_tween()
+	settle.tween_property(_coin_disc, "scale", Vector2(1.08, 1.08), 0.08)
+	settle.tween_property(_coin_disc, "scale", Vector2.ONE, 0.12)
+	_score_set = true
+	_round_score = 1 if won else 0
+	var landed := "Heads" if face == "HEADS" else "Tails"
+	var called := "Heads" if call == "HEADS" else "Tails"
+	_status.text = "Called %s · Landed %s" % [called, landed]
 
 
 func _animate_boxes(presentation: Dictionary) -> void:
 	var rewards: Array = presentation.get("rewards", [])
 	var chosen := int(presentation.get("index", -1))
+	if _chest != null:
+		_chest.prize = -1.0
+		_chest.open_amount = 0.0
+		_chest.shake = 0.7
+		_chest.mouse_filter = Control.MOUSE_FILTER_STOP
+		await _await_action(1.4, "Tap your chest to open it")
+		_chest.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if not is_inside_tree():
+			return
+		var prize := float(rewards[chosen]) if chosen >= 0 and chosen < rewards.size() else 0.0
+		var tween := create_tween()
+		tween.tween_property(_chest, "open_amount", 1.0, 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		await tween.finished
+		if not is_inside_tree():
+			return
+		_chest.prize = prize
 	for index in _choice_buttons.size():
 		await get_tree().create_timer(0.07).timeout
 		if not is_inside_tree():
@@ -1215,24 +1403,55 @@ func _reveal_cells(raw: Variant, uppercase: bool, matched: Variant = []) -> void
 
 
 func _animate_drop(presentation: Dictionary) -> void:
-	var gems: Array = presentation.get("gems", [])
+	var gems: Array = presentation.get("gems", []) if presentation.get("gems", []) is Array else []
 	var combo := int(presentation.get("combo", 0))
+	_drop_live = true
+	_drop_index = -1
+	_drop_caught = -1
+	_refresh_bet()
+	_status.text = "Press Catch as each gem lands."
 	for index in _cell_labels.size():
+		if not is_inside_tree() or _leaving:
+			_drop_live = false
+			return
+		_drop_index = index
+		_drop_caught = -1
 		var text := str(gems[index]) if index < gems.size() else ""
-		_cell_labels[index].text = _mark(text)
+		var label := _cell_labels[index]
+		label.text = _mark(text)
+		label.modulate.a = 0.15
+		label.pivot_offset = label.size * 0.5
+		label.scale = Vector2(0.82, 0.35)
 		if index < _cell_faces.size():
 			_cell_faces[index].visible = text != ""
 			_cell_faces[index].set_symbol(_symbol_id(text))
-			_cell_faces[index].set_winning(index < combo)
-		_cell_labels[index].modulate.a = 0.0
+			_cell_faces[index].set_winning(false)
 		if index < combo:
-			_cell_labels[index].add_theme_color_override("font_color", UiTheme.COL_GOLD)
-		var tween := _cell_labels[index].create_tween()
-		tween.tween_property(_cell_labels[index], "modulate:a", 1.0, 0.2)
-		await get_tree().create_timer(0.08).timeout
-		if not is_inside_tree():
+			label.add_theme_color_override("font_color", UiTheme.COL_GOLD)
+		var tween := label.create_tween()
+		tween.set_parallel(true)
+		tween.tween_property(label, "modulate:a", 1.0, 0.18)
+		tween.tween_property(label, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		_honor_pause(tween)
+		var window := lerpf(0.5, 0.22, float(index) / float(maxi(_cell_labels.size() - 1, 1)))
+		if not await _wait(window):
+			_drop_live = false
 			return
+		var caught := _drop_caught == index
+		if index < _cell_faces.size():
+			_cell_faces[index].set_winning(index < combo)
+		if caught and index < combo:
+			_status.text = "Caught"
+			UiMotion.pulse_selected(label)
+		elif caught:
+			_status.text = "No score on that gem"
+		else:
+			_status.text = "Gem %d of %d" % [index + 1, _cell_labels.size()]
+	_drop_live = false
+	_score_set = true
+	_round_score = combo
 	_status.text = "Combo  %d" % combo
+	_refresh_bet()
 
 
 func _animate_cards(presentation: Dictionary) -> void:
@@ -1256,6 +1475,9 @@ func _animate_cards(presentation: Dictionary) -> void:
 		return
 	if player_value is Dictionary:
 		var player: Dictionary = player_value
+		_player_card.mouse_filter = Control.MOUSE_FILTER_STOP
+		await _await_action(1.8, "Tap your card to flip it")
+		_player_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		await _player_card.reveal_card(str(player.get("rank", "?")), str(player.get("suit", "hearts")))
 
 
@@ -1280,27 +1502,36 @@ func _symbol_id(value: String) -> String:
 
 
 func _animate_burst(presentation: Dictionary) -> void:
-	var count := int(presentation.get("count", 0))
-	var seconds := maxi(int(presentation.get("seconds", 6)), 1)
-	if _cell_labels.is_empty():
+	if _burst == null:
 		return
-	var label := _cell_labels[0]
-	if _burst_fill != null:
-		_burst_fill.anchor_right = 0.0
-		var bar_tween := create_tween()
-		bar_tween.tween_property(_burst_fill, "anchor_right", 1.0, float(seconds) * 0.16).set_trans(Tween.TRANS_SINE)
-	var ticks := mini(seconds, 4)
-	for second in ticks:
-		label.text = "0:%02d" % (ticks - second)
-		await get_tree().create_timer(0.12).timeout
-		if not is_inside_tree():
-			return
-	label.text = "Collected  %d" % count
-	label.add_theme_color_override("font_color", UiTheme.COL_GOLD if count > 0 else UiTheme.COL_MUTED)
+	var count := int(presentation.get("count", 0))
+	var seconds := maxf(float(presentation.get("seconds", 6)), 4.0)
+	_status.text = "Tap the bursts. Decoys do not count."
+	_refresh_bet()
+	await _burst.play_round(count, seconds)
+	if not is_inside_tree():
+		return
+	_score_set = true
+	_round_score = _burst.round_score()
+	_status.text = "Collected  %d" % _round_score
+
+
+func _settle_board() -> bool:
+	if _status.text == "" or _status.text == "Placing bet...":
+		_status.text = "Round complete"
+	_status.add_theme_color_override("font_color", UiTheme.COL_GOLD)
+	return await _wait(1.05)
 
 
 func _show_result(data: Dictionary) -> void:
+	if _results_posted or _leaving or not is_inside_tree():
+		return
+	_results_posted = true
 	var win := float(data.get("winAmount", 0))
+	_awarded = maxf(win, 0.0)
+	if not _score_set:
+		_round_score = int(round(float(data.get("multiplier", 0.0))))
+		_score_set = true
 	var next := float(data.get("balance", _balance))
 	_set_balance(next, true)
 	var outcome := ""
@@ -1366,6 +1597,8 @@ func _show_result(data: Dictionary) -> void:
 
 
 func _present_result(title: String, detail: String, color: Color) -> void:
+	if _phase == "result" and title != "Unable to play":
+		return
 	if _result_kicker:
 		_result_kicker.text = title
 		_result_kicker.add_theme_color_override("font_color", color)
@@ -1378,6 +1611,22 @@ func _present_result(title: String, detail: String, color: Color) -> void:
 	UiMotion.pop_in(_result_panel)
 	if color == UiTheme.COL_GREEN and _credits:
 		UiMotion.pulse_selected(_credits)
+	if title == "Unable to play":
+		return
+	_phase = "result"
+	var spent := _amount(_bet) if _charged else "0"
+	var body := "%s\n\nScore\n%d\n\nCredits spent\n%s\n\nCredits awarded\n%s\n\nBalance\n%s" % [
+		detail,
+		_round_score,
+		spent,
+		_amount(_awarded),
+		_amount(_balance),
+	]
+	_show_flow("ROUND RESULT", title, body, "Play Again", "Back to Games")
+	if _flow:
+		_flow.move_to_front()
+	_lock_scroll(false)
+	_refresh_bet()
 
 
 func _set_balance(next: float, animate: bool) -> void:
@@ -1403,7 +1652,7 @@ func _set_balance(next: float, animate: bool) -> void:
 
 
 func _quick_bet(label: String) -> void:
-	if _busy:
+	if _busy or _phase != "ready":
 		return
 	var mid := clampi(int(round(float(_min + _max) * 0.5)), _min, _max)
 	if label == "Max":
@@ -1413,6 +1662,7 @@ func _quick_bet(label: String) -> void:
 	else:
 		_bet = _min
 	_refresh_bet()
+	_note_entry()
 
 
 func _paint_stage() -> void:
@@ -1426,42 +1676,72 @@ func _paint_stage() -> void:
 	ArcadeBackdrop.mount_photo(self, GameArt.screen_path("gameplay"), 0.66, 0.1)
 
 
+func _mark_action() -> void:
+	_action_go = true
+
+
+func _poke_action(event: InputEvent) -> void:
+	var pressed := false
+	if event is InputEventMouseButton:
+		var mouse := event as InputEventMouseButton
+		pressed = mouse.pressed and mouse.button_index == MOUSE_BUTTON_LEFT
+	elif event is InputEventScreenTouch:
+		pressed = (event as InputEventScreenTouch).pressed
+	if pressed:
+		_action_go = true
+
+
+func _await_action(seconds: float, prompt: String) -> void:
+	_action_go = false
+	_status.text = prompt
+	var waited := 0.0
+	while not _action_go and waited < seconds and is_inside_tree() and not _leaving:
+		await get_tree().process_frame
+		if _paused:
+			continue
+		waited += clampf(get_process_delta_time(), 0.0, 0.034)
+
+
 func _hint() -> String:
 	match _slug:
 		"fishing":
-			return "Aim the cannon and shoot the glowing fish."
+			return "Aim and shoot. Chain hits for rapid fire."
 		"target-blast":
-			return "Hit the targets before they fade."
+			return "Blast moving targets. They speed up as the clock drops."
 		"aeroplane-rush":
-			return "Drag the plane and collect the coins."
+			return "Steer the plane. The course speeds up. Three clouds end the flight."
 		"bottle-blast":
-			return "Aim the launcher and break the bottles."
+			return "Hold to charge a heavier shot, then release."
 		"scratch-mania":
-			return "Scratch the foil to reveal the symbols."
+			return "Drag across each foil until it wears through."
 		"coin-flip":
-			return "Call heads or tails, then flip."
+			return "Call a face, then swipe the coin."
 		"treasure-box":
-			return "Choose a chest."
+			return "Choose a chest. Tap it to open."
 		"mystery-box":
-			return "Open the sealed chest."
+			return "Tap the shaking chest to open it."
 		"diamond-spin":
-			return "Spin the crystal wheel."
+			return "Flick the crystal wheel."
 		"fruit-spin":
-			return "Spin the fruit wheel."
+			return "Flick the fruit wheel."
 		"dollar-rush":
-			return "Pick a lane before the rush."
+			return "The marker speeds up. Stop it on a lane. It can miss."
 		"cash-match":
-			return "Reveal the cards and match the symbols."
+			return "Flip two cards. Matching pairs stay face up."
 		"diamond-drop":
-			return "Watch the gems fall into a combo."
+			return "Catch each gem. The window shrinks."
 		"bonus-burst":
-			return "Collect the burst before time runs out."
+			return "Tap the drifting bursts. Decoys do not count."
 		"higher-card":
-			return "Draw higher than the house."
+			return "The house flips first. Tap your card to turn it over."
 		"dice":
-			return "Roll for sevens and doubles."
+			return "Tap a die to roll. Sevens and doubles pay."
 		"lucky-number":
-			return "Pick a number from 1 to 10."
+			return "Pick 1–10, then tap to stop the draw."
+		"lucky-dollar", "golden-fortune":
+			return "Tap a reel to stop it."
+		"lucky-spin", "jackpot-wheel", "lucky-wheel", "prize-spinner":
+			return "Flick the wheel."
 		_:
 			return "Ready"
 
@@ -1524,14 +1804,17 @@ func _play_scratch(presentation: Dictionary) -> void:
 	var cells: Array = presentation.get("cells", []) if presentation.get("cells", []) is Array else []
 	_scratch_done = false
 	_scratch_mode = true
+	_score_set = true
+	_round_score = int(presentation.get("matches", 0))
 	for index in _scratch_buttons.size():
 		_scratch_buttons[index].text = "?"
 		_scratch_buttons[index].disabled = false
 		_scratch_buttons[index].set_meta("prize", str(cells[index]) if index < cells.size() else "")
 		_scratch_buttons[index].set_meta("open", false)
-	_status.text = "Scratch the card"
-	_play.disabled = false
-	_play.text = "Reveal"
+		if _scratch_buttons[index].has_method("reset_foil"):
+			_scratch_buttons[index].reset_foil()
+	_status.text = "Drag across the foil  ·  0 / %d" % _scratch_buttons.size()
+	_refresh_bet()
 	while not _scratch_done and is_inside_tree():
 		await get_tree().process_frame
 	_scratch_mode = false
@@ -1553,7 +1836,8 @@ func _scratch_at(index: int) -> void:
 	for other in _scratch_buttons:
 		if not bool(other.get_meta("open", false)):
 			closed += 1
-	_status.text = "Scratch  %d left" % closed
+	var opened := _scratch_buttons.size() - closed
+	_status.text = "Scratched  %d / %d" % [opened, _scratch_buttons.size()]
 	if closed == 0:
 		_scratch_done = true
 
@@ -1571,6 +1855,7 @@ func _reveal_scratch() -> void:
 func _show_low_credits() -> void:
 	if _low:
 		_low.visible = true
+		_low.move_to_front()
 		UiMotion.pop_in(_low)
 	_status.text = "Not enough credits"
 
@@ -1673,6 +1958,7 @@ func _build_overlays() -> void:
 	cancel.custom_minimum_size = Vector2(0, 48)
 	cancel.pressed.connect(func() -> void: _ask.visible = false)
 	ask_box.add_child(cancel)
+	_build_flow()
 
 
 func _overlay_panel() -> Control:
@@ -1733,7 +2019,8 @@ func _layout_board() -> void:
 	if _wheel:
 		var diameter := _wheel_diameter()
 		_wheel.custom_minimum_size = Vector2(diameter, diameter)
-	var play_height := clampf(size.y - 230.0, 380.0, 620.0)
+	var reserved := 280.0 if _layout == "dock" else 220.0
+	var play_height := clampf(size.y - reserved, 240.0, 620.0)
 	if _pond:
 		_pond.custom_minimum_size = Vector2(0, play_height)
 	if _gallery:
@@ -1742,6 +2029,8 @@ func _layout_board() -> void:
 		_sky.custom_minimum_size = Vector2(0, play_height)
 	if _bottles:
 		_bottles.custom_minimum_size = Vector2(0, play_height)
+	if _burst:
+		_burst.custom_minimum_size = Vector2(0, play_height)
 	var card_w := clampf(size.x * 0.34, 112.0, 150.0)
 	if _player_card:
 		_player_card.custom_minimum_size = Vector2(card_w, card_w * 1.42)
@@ -1753,7 +2042,8 @@ func _apply_layout() -> void:
 	if _shell == null or _board_panel == null or _controls == null:
 		return
 	var mode := "stack"
-	if size.y > size.x and size.x < 560.0 and size.x > 8.0:
+	var pin_controls := _pausable() and (_phase == "live" or _phase == "sweep" or _paused)
+	if pin_controls or (size.y > size.x and size.x < 560.0 and size.x > 8.0):
 		mode = "dock"
 	elif size.x > size.y + 60.0 and size.y < 620.0 and size.x >= 700.0:
 		mode = "split"
@@ -1896,11 +2186,612 @@ func _amount(value: Variant) -> String:
 	return "%.2f" % amount
 
 
+func _process(delta: float) -> void:
+	if _phase != "sweep":
+		return
+	if _paused:
+		return
+	var step := clampf(delta, 0.0, 0.034)
+	_rush_arm = maxf(_rush_arm - step, 0.0)
+	_rush_left -= step
+	_rush_wait -= step
+	if _rush_wait <= 0.0:
+		var pace := 1.0 - clampf(_rush_left / 4.2, 0.0, 1.0)
+		_rush_wait = lerpf(0.2, 0.065, pace)
+		var count := maxi(_choice_buttons.size(), 1)
+		_rush_index = (_rush_index + 1) % count
+		_paint_rush()
+	if _rush_left <= 0.0 and _lock_rush():
+		_rush_expired.emit()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+		if _phase == "countdown":
+			_cancel_round = true
+		elif (_phase == "live" or _phase == "sweep") and _pausable() and not _paused:
+			_toggle_pause()
+
+
+func _pausable() -> bool:
+	return _slug == "fishing" or _slug == "target-blast" or _slug == "aeroplane-rush" or _slug == "bottle-blast" or _slug == "bonus-burst" or _slug == "dollar-rush"
+
+
+func _open_brief() -> void:
+	_phase = "brief"
+	_busy = false
+	_charged = false
+	_paused = false
+	_set_bets_enabled(false)
+	_set_choices_disabled(true)
+	var cost := "Entry %s to %s credits. The server confirms every prize." % [_amount(_min), _amount(_max)]
+	_show_flow(_name.to_upper(), "How to play", "%s\n\n%s" % [_instructions(), cost], "Continue", "Back to Games")
+	_refresh_bet()
+	_status.text = _hint()
+	_status.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+	_lock_scroll(false)
+
+
+func _show_ready() -> void:
+	if _leaving:
+		return
+	_hide_flow()
+	_phase = "ready"
+	_busy = false
+	_charged = false
+	_paused = false
+	_replay = false
+	_cancel_round = false
+	_set_bets_enabled(true)
+	_set_choices_disabled(false)
+	_lock_scroll(false)
+	_refresh_bet()
+	_note_entry()
+	_fit()
+
+
+func _replay_round() -> void:
+	if _busy and _phase != "result":
+		return
+	_hide_flow()
+	_paused = false
+	_apply_pause()
+	_charged = false
+	_score_set = false
+	_round_score = 0
+	_awarded = 0.0
+	_settling = false
+	_results_posted = false
+	_replay = false
+	_retry = false
+	_choice = null
+	_held = {}
+	_cancel_round = false
+	_reset_round_visuals()
+	_show_ready()
+
+
+func _reset_round_visuals() -> void:
+	_scratch_mode = false
+	_scratch_done = true
+	_match_live = false
+	_match_done = true
+	_drop_live = false
+	_build_board()
+	_layout_board()
+	UiMotion.bind_tree(_board)
+	_rest_arcade()
+
+
+func _start_rush() -> void:
+	_phase = "sweep"
+	_busy = true
+	_rush_index = 0
+	_rush_wait = 0.16
+	_rush_left = 4.2
+	_rush_arm = 0.28
+	_choice = null
+	_set_choices_disabled(true)
+	_set_bets_enabled(false)
+	_paint_rush()
+	_status.text = "Stop the marker. This lane can miss."
+	_status.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+	_refresh_bet()
+	_fit()
+
+
+func _lock_rush() -> bool:
+	if _phase != "sweep" or _rush_arm > 0.0:
+		return false
+	if _choice_buttons.is_empty():
+		_choice = 0
+	else:
+		var index := clampi(_rush_index, 0, _choice_buttons.size() - 1)
+		_choice = _choice_values[index] if index < _choice_values.size() else index
+		_rush_index = index
+	_phase = "locking"
+	_paint_rush()
+	_status.text = "Lane locked. A hit is not guaranteed."
+	return true
+
+
+func _paint_rush() -> void:
+	for index in _choice_buttons.size():
+		var selected := index == _rush_index
+		_choice_buttons[index].theme_type_variation = "PrimaryButton" if selected else "Button"
+		_choice_buttons[index].modulate = Color(1.08, 1.02, 0.75) if selected else Color.WHITE
+
+
+func _on_rush_expired() -> void:
+	if _leaving or not is_inside_tree():
+		return
+	await _arm_and_play()
+
+
+func _arm_and_play() -> void:
+	if _phase != "ready" and _phase != "locking":
+		return
+	_busy = true
+	_cancel_round = false
+	_replay = false
+	_retry = false
+	_score_set = false
+	_round_score = 0
+	_awarded = 0.0
+	_settling = false
+	_results_posted = false
+	_phase = "countdown"
+	_play.modulate = Color(1.0, 0.96, 0.86)
+	_set_choices_disabled(true)
+	_set_bets_enabled(false)
+	_result.text = ""
+	_delta.text = ""
+	if _result_panel:
+		_result_panel.visible = false
+		_result_panel.scale = Vector2.ONE
+		_result_panel.modulate.a = 1.0
+	_hide_flow()
+	_refresh_bet()
+	for step in [3, 2, 1]:
+		_show_flow("GET READY", str(step), "Entry  %s credits" % _amount(_bet), "", "")
+		if not await _wait(0.42):
+			_abort_unpaid()
+			return
+		if _cancel_round or _leaving:
+			_abort_unpaid()
+			return
+	if not is_inside_tree() or _leaving:
+		return
+	_hide_flow()
+	_phase = "live"
+	_lock_scroll(_pausable())
+	_refresh_bet()
+	_fit()
+	_status.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+	if _slug == "fishing" and _pond:
+		_pond.show_loading()
+		_status.text = "Diving..."
+	elif _slug == "target-blast" and _gallery:
+		_gallery.show_loading()
+		_status.text = "Arming..."
+	elif _slug == "aeroplane-rush" and _sky:
+		_sky.show_loading()
+		_status.text = "Boarding..."
+	elif _slug == "bottle-blast" and _bottles:
+		_bottles.show_loading()
+		_status.text = "Setting bottles..."
+	else:
+		_status.text = "Placing bet..."
+		_pulse_board()
+	var request_id := "play-%s-%s" % [str(Time.get_ticks_msec()), str(randi() % 1000000)]
+	var sent: Variant = null
+	if _needs_choice() or _slug == "dollar-rush":
+		sent = _choice
+	var response: Dictionary = await ApiClient.spin(_game_id, _bet, sent, request_id)
+	if not is_inside_tree():
+		return
+	if _leaving:
+		if response.ok:
+			_charged = true
+			_set_balance(float(response.data.get("balance", _balance)), false)
+		return
+	if not response.ok:
+		var message := str(response.error)
+		if message == "Insufficient credits":
+			_busy = false
+			_phase = "ready"
+			_play.modulate = Color.WHITE
+			_set_choices_disabled(false)
+			_set_bets_enabled(true)
+			_rest_arcade()
+			_lock_scroll(false)
+			_refresh_bet()
+			_show_low_credits()
+			_fit()
+			return
+		if message.to_lower().contains("unavailable") or int(response.get("status", 0)) == 403:
+			_show_unavailable()
+			return
+		_finish_turn(_friendly_error(message), true)
+		return
+	_charged = true
+	_held = response.data
+	_results_posted = false
+	await _animate(response.data)
+	if not is_inside_tree() or _leaving:
+		if is_inside_tree():
+			_set_balance(float(response.data.get("balance", _balance)), false)
+		return
+	_settling = true
+	_refresh_bet()
+	var settled := await _settle_board()
+	_settling = false
+	if not settled or not is_inside_tree() or _leaving or _results_posted:
+		return
+	_show_result(response.data)
+	_replay = true
+	_finish_turn(str(response.data.get("title", "Round complete")), false)
+
+
+func _abort_unpaid() -> void:
+	if _charged or _leaving or not is_inside_tree():
+		return
+	_busy = false
+	_phase = "ready"
+	_cancel_round = false
+	_play.modulate = Color.WHITE
+	_set_choices_disabled(false)
+	_set_bets_enabled(true)
+	_hide_flow()
+	_lock_scroll(false)
+	_status.text = "Round cancelled before the entry was charged."
+	_status.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+	_refresh_bet()
+	_fit()
+
+
+func _toggle_pause() -> void:
+	if not _pausable():
+		return
+	if _phase != "live" and _phase != "sweep" and not _paused:
+		return
+	_paused = not _paused
+	_apply_pause()
+	if _paused:
+		_status.text = "Paused"
+		_status.add_theme_color_override("font_color", UiTheme.COL_GOLD)
+	elif _phase == "sweep":
+		_status.text = "Stop the marker. This lane can miss."
+	_refresh_bet()
+
+
+func _apply_pause() -> void:
+	var tree := get_tree()
+	if tree:
+		for tween in tree.get_processed_tweens():
+			if _paused:
+				tween.pause()
+			else:
+				tween.play()
+	if _pond and is_instance_valid(_pond):
+		_pond.set_paused(_paused)
+	if _gallery and is_instance_valid(_gallery):
+		_gallery.set_paused(_paused)
+	if _sky and is_instance_valid(_sky):
+		_sky.set_paused(_paused)
+	if _bottles and is_instance_valid(_bottles):
+		_bottles.set_paused(_paused)
+	if _burst and is_instance_valid(_burst):
+		_burst.set_paused(_paused)
+
+
+func _wait(seconds: float) -> bool:
+	var left := seconds
+	while left > 0.0:
+		if not is_inside_tree() or _leaving:
+			return false
+		if _paused or _cancel_round:
+			if _cancel_round:
+				return false
+			await get_tree().process_frame
+			continue
+		var frame := get_process_delta_time()
+		left -= frame if frame > 0.0 else 0.016
+		await get_tree().process_frame
+	return is_inside_tree() and not _leaving and not _cancel_round
+
+
+func _honor_pause(tween: Tween) -> void:
+	if _paused and tween != null:
+		tween.pause()
+
+
+func _note_entry() -> void:
+	if _phase != "ready":
+		return
+	_status.text = "%s\nEntry %s credits." % [_hint(), _amount(_bet)]
+	_status.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+
+
+func _set_bets_enabled(enabled: bool) -> void:
+	if _controls == null:
+		return
+	for child in _controls.get_children():
+		_set_buttons_enabled(child, enabled)
+
+
+func _set_buttons_enabled(node: Node, enabled: bool) -> void:
+	if node == _play or node == _status or node == _result_panel or node == _result or node == _result_kicker:
+		return
+	if node is Button:
+		(node as Button).disabled = not enabled
+	for child in node.get_children():
+		_set_buttons_enabled(child, enabled)
+
+
+func _lock_scroll(locked: bool) -> void:
+	var scroll := get_node_or_null("Scroll") as ScrollContainer
+	if scroll == null:
+		return
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED if locked else ScrollContainer.SCROLL_MODE_AUTO
+
+
+func _instructions() -> String:
+	match _slug:
+		"lucky-dollar":
+			return "The reels spin. Tap a reel to stop it on the server's result. Matching center symbols pay."
+		"golden-fortune":
+			return "Five reels spin. Tap each reel to stop it. The longest matching run sets the result."
+		"dollar-rush":
+			return "A marker sweeps the lanes and speeds up. Press Stop to lock one. It can miss."
+		"scratch-mania":
+			return "Drag across each foil panel until it wears through. Reveal opens the rest."
+		"fruit-spin":
+			return "Flick the fruit wheel. It eases down under the pointer."
+		"diamond-spin":
+			return "Flick the crystal wheel. It slows onto one gem."
+		"lucky-wheel", "jackpot-wheel", "lucky-spin", "prize-spinner":
+			return "Flick the wheel. A harder flick spins longer, then it stops on one segment."
+		"coin-flip":
+			return "Call heads or tails, then swipe the coin to toss it."
+		"treasure-box":
+			return "Choose one chest. It opens after the round starts, and it can be empty."
+		"mystery-box":
+			return "The sealed chest shakes, then opens. The prize can be empty."
+		"cash-match":
+			return "Flip two cards at a time. Matching pairs stay up. A miss turns them back."
+		"diamond-drop":
+			return "Gems fall faster as the row fills. Press Catch in the shrinking window."
+		"bonus-burst":
+			return "Moving bursts drift around the table. Tap the real ones and avoid decoys."
+		"fishing":
+			return "Aim and shoot the moving fish. Chain hits to trigger rapid fire. The ringed fish carries the prize."
+		"target-blast":
+			return "Blast moving targets. They speed up. A combo grows until you miss."
+		"aeroplane-rush":
+			return "Steer with a drag or the arrow keys. The scroll speeds up. Three cloud hits end the flight."
+		"bottle-blast":
+			return "Aim and fire. Hold to charge a heavier shot. Bottles speed up as time runs out."
+		"dice":
+			return "Tap a die to roll. Both dice settle. Sevens and doubles are the paying hands."
+		"lucky-number":
+			return "Pick a number from 1 to 10, then tap to stop the draw."
+		"higher-card":
+			return "The house card flips first. Tap yours to turn it. A higher rank wins. Equal ranks push."
+		_:
+			return _hint()
+
+
+func _play_match(presentation: Dictionary) -> void:
+	_match_cards = presentation.get("cards", []) if presentation.get("cards", []) is Array else []
+	_match_hits = presentation.get("matched", []) if presentation.get("matched", []) is Array else []
+	if _card_buttons.is_empty():
+		await _reveal_cells(_match_cards, false, _match_hits)
+		_score_set = true
+		_round_score = int(float(_match_hits.size()) * 0.5)
+		return
+	_match_open.clear()
+	_match_open.resize(_card_buttons.size())
+	_match_open.fill(false)
+	_match_first = -1
+	_match_lock = false
+	_match_done = false
+	_match_live = true
+	for card_button in _card_buttons:
+		card_button.disabled = false
+		card_button.text = "?"
+		card_button.theme_type_variation = "Button"
+	_status.text = "Flip two cards. Matches stay face up."
+	_refresh_bet()
+	var elapsed := 0.0
+	while not _match_done and is_inside_tree() and not _leaving:
+		if _match_cleared():
+			break
+		elapsed += maxf(get_process_delta_time(), 0.0)
+		if elapsed >= 20.0:
+			break
+		await get_tree().process_frame
+	_match_live = false
+	_match_lock = true
+	for index in _card_buttons.size():
+		var text := str(_match_cards[index]) if index < _match_cards.size() else ""
+		_card_buttons[index].text = _mark(text)
+		_card_buttons[index].disabled = true
+		if _has_int(_match_hits, index):
+			_card_buttons[index].theme_type_variation = "PrimaryButton"
+	_score_set = true
+	_round_score = int(float(_match_hits.size()) * 0.5)
+
+
+func _flip_card(index: int) -> void:
+	if not _match_live or _match_lock:
+		return
+	if index < 0 or index >= _card_buttons.size() or index >= _match_open.size():
+		return
+	if _match_open[index]:
+		return
+	_match_open[index] = true
+	var text := str(_match_cards[index]) if index < _match_cards.size() else ""
+	_card_buttons[index].text = _mark(text)
+	UiMotion.pulse_selected(_card_buttons[index])
+	if _match_first < 0:
+		_match_first = index
+		_status.text = "Pick a second card."
+		return
+	var first := _match_first
+	_match_first = -1
+	_match_lock = true
+	var matched := _pair_matches(first, index)
+	if not await _wait(0.32):
+		return
+	if first >= _card_buttons.size() or index >= _card_buttons.size():
+		_match_lock = false
+		return
+	if not matched:
+		if first < _match_open.size():
+			_match_open[first] = false
+		if index < _match_open.size():
+			_match_open[index] = false
+		_card_buttons[first].text = "?"
+		_card_buttons[index].text = "?"
+		_status.text = "No match."
+	else:
+		_card_buttons[first].theme_type_variation = "PrimaryButton"
+		_card_buttons[index].theme_type_variation = "PrimaryButton"
+		_status.text = "Match."
+	_match_lock = false
+	if _match_cleared():
+		_match_done = true
+
+
+func _pair_matches(left_index: int, right_index: int) -> bool:
+	if left_index < 0 or right_index < 0:
+		return false
+	if left_index >= _match_cards.size() or right_index >= _match_cards.size():
+		return false
+	var left := str(_match_cards[left_index])
+	var right := str(_match_cards[right_index])
+	return left != "" and left == right
+
+
+func _match_cleared() -> bool:
+	if _match_open.is_empty():
+		return false
+	if _match_hits.is_empty():
+		for opened in _match_open:
+			if not opened:
+				return false
+		return true
+	for value in _match_hits:
+		var index := int(value)
+		if index < 0 or index >= _match_open.size() or not _match_open[index]:
+			return false
+	return true
+
+
+func _build_flow() -> void:
+	_flow = ColorRect.new()
+	_flow.color = Color(0.02, 0.03, 0.06, 0.78)
+	_flow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_flow.visible = false
+	_flow.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_flow)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_flow.add_child(center)
+	_flow_panel = PanelContainer.new()
+	_flow_panel.custom_minimum_size = Vector2(320, 0)
+	UiTheme.paint_glass(_flow_panel)
+	center.add_child(_flow_panel)
+	var margin := MarginContainer.new()
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		margin.add_theme_constant_override(side, 18)
+	_flow_panel.add_child(margin)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	margin.add_child(box)
+	_flow_kicker = Label.new()
+	_flow_kicker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_flow_kicker.add_theme_font_size_override("font_size", 13)
+	_flow_kicker.add_theme_color_override("font_color", UiTheme.COL_GOLD)
+	box.add_child(_flow_kicker)
+	_flow_title = Label.new()
+	_flow_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_flow_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_flow_title.add_theme_font_size_override("font_size", 26)
+	_flow_title.add_theme_color_override("font_color", UiTheme.COL_TEXT)
+	box.add_child(_flow_title)
+	_flow_scroll = ScrollContainer.new()
+	_flow_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_flow_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_flow_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	box.add_child(_flow_scroll)
+	_flow_body = Label.new()
+	_flow_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_flow_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_flow_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_flow_body.add_theme_font_size_override("font_size", 16)
+	_flow_body.add_theme_color_override("font_color", UiTheme.COL_MUTED)
+	_flow_scroll.add_child(_flow_body)
+	_flow_primary = Button.new()
+	_flow_primary.theme_type_variation = "PrimaryButton"
+	_flow_primary.custom_minimum_size = Vector2(0, 52)
+	_flow_primary.pressed.connect(_flow_primary_pressed)
+	box.add_child(_flow_primary)
+	_flow_secondary = Button.new()
+	_flow_secondary.custom_minimum_size = Vector2(0, 48)
+	_flow_secondary.pressed.connect(_leave)
+	box.add_child(_flow_secondary)
+
+
+func _fit_flow_body() -> void:
+	if _flow_scroll == null or _flow_body == null or not is_instance_valid(_flow_scroll):
+		return
+	var limit := clampf(size.y - 300.0, 72.0, 280.0)
+	var needed := _flow_body.get_minimum_size().y
+	if _flow_body.text == "":
+		_flow_scroll.custom_minimum_size.y = 0.0
+		_flow_scroll.visible = false
+		return
+	_flow_scroll.visible = true
+	_flow_scroll.custom_minimum_size.y = minf(maxf(needed, 24.0), limit)
+
+
+func _show_flow(kicker: String, title: String, body: String, primary: String, secondary: String) -> void:
+	if _flow == null or _flow_kicker == null:
+		return
+	_flow_kicker.text = kicker
+	_flow_title.text = title
+	_flow_body.text = body
+	_flow_title.add_theme_font_size_override("font_size", 64 if kicker == "GET READY" else 26)
+	_fit_flow_body()
+	_flow_primary.visible = primary != ""
+	_flow_primary.text = primary
+	_flow_secondary.visible = secondary != ""
+	_flow_secondary.text = secondary
+	_flow.visible = true
+	_flow.move_to_front()
+
+
+func _hide_flow() -> void:
+	if _flow:
+		_flow.visible = false
+
+
+func _flow_primary_pressed() -> void:
+	if _phase == "brief":
+		_show_ready()
+	elif _phase == "result":
+		_replay_round()
+
+
 class WheelFace extends Control:
 	var segments: Array = [0, 1, 2, 5, 0, 10]
 	var symbols: Array = []
 	var style := "wheel"
 	var winner := -1
+	var flicked := false
+	var flick_power := 1.0
 	var pointer_drop := 0.0:
 		set(value):
 			pointer_drop = value
@@ -1909,6 +2800,28 @@ class WheelFace extends Control:
 		set(value):
 			spin_angle = value
 			queue_redraw()
+
+	func _gui_input(event: InputEvent) -> void:
+		var pressed := false
+		if event is InputEventMouseButton:
+			var mouse := event as InputEventMouseButton
+			pressed = mouse.pressed and mouse.button_index == MOUSE_BUTTON_LEFT
+			if pressed:
+				flick_power = clampf(mouse.position.length() / 90.0, 1.0, 1.8)
+		elif event is InputEventScreenTouch:
+			var touch := event as InputEventScreenTouch
+			pressed = touch.pressed
+			if pressed:
+				flick_power = 1.4
+		elif event is InputEventScreenDrag:
+			flicked = true
+			flick_power = 1.6
+			accept_event()
+			return
+		if pressed:
+			flicked = true
+			accept_event()
+
 
 	func _draw() -> void:
 		var center := size * 0.5
@@ -2003,7 +2916,31 @@ class WheelFace extends Control:
 class DieFace:
 	extends Control
 
+	signal rolled
+
 	var face := 1
+	var _armed := false
+
+
+	func arm(enabled: bool) -> void:
+		_armed = enabled
+		mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+
+
+	func _gui_input(event: InputEvent) -> void:
+		if not _armed:
+			return
+		var pressed := false
+		if event is InputEventMouseButton:
+			var mouse := event as InputEventMouseButton
+			pressed = mouse.pressed and mouse.button_index == MOUSE_BUTTON_LEFT
+		elif event is InputEventScreenTouch:
+			pressed = (event as InputEventScreenTouch).pressed
+		if pressed:
+			_armed = false
+			mouse_filter = Control.MOUSE_FILTER_IGNORE
+			rolled.emit()
+			accept_event()
 
 
 	func set_face(value: int) -> void:

@@ -27,6 +27,9 @@ var _count_t := 0.0
 var _finale := 0.0
 var _flushed := false
 var _font: Font
+var _paused := false
+var _stun := 0.0
+var _bumps := 0
 
 
 func _ready() -> void:
@@ -49,8 +52,19 @@ func show_loading() -> void:
 	_phase = "loading"
 
 
-func play_round(presentation: Dictionary, bet: int, _win_amount: float, credits: float) -> void:
+func set_paused(paused: bool) -> void:
+	_paused = paused
+	queue_redraw()
+
+
+func round_score() -> int:
+	return _score
+
+
+func play_round(presentation: Dictionary, bet: int, _win_amount: float, credits: float, armed: bool = false) -> void:
 	_closed = false
+	_stun = 0.0
+	_bumps = 0
 	_flushed = false
 	_bet = bet
 	_credits = maxf(credits, 0.0)
@@ -82,7 +96,7 @@ func play_round(presentation: Dictionary, bet: int, _win_amount: float, credits:
 				_queue.append(copy)
 	_count_n = 3
 	_count_t = 0.4
-	_phase = "countdown"
+	_phase = "play" if armed else "countdown"
 	_plane_y = 0.48
 	_target_y = 0.48
 	set_process(true)
@@ -96,9 +110,15 @@ func _exit_tree() -> void:
 
 func _process(delta: float) -> void:
 	delta = clampf(delta, 0.0, 0.034)
+	if _paused:
+		queue_redraw()
+		return
 	_time += delta
 	_drift_clouds(delta)
-	_plane_y = lerpf(_plane_y, _target_y, clampf(delta * 8.0, 0.0, 1.0))
+	if _stun > 0.0:
+		_stun = maxf(_stun - delta, 0.0)
+	else:
+		_plane_y = lerpf(_plane_y, _target_y, clampf(delta * 8.0, 0.0, 1.0))
 	match _phase:
 		"countdown":
 			_count_t -= delta
@@ -111,7 +131,8 @@ func _process(delta: float) -> void:
 			_left = maxf(_left - delta, 0.0)
 			_release(delta)
 			_slide(delta)
-			if _left <= 0.0 or _pending_points() <= 0:
+			var played := _duration - _left
+			if _left <= 0.0 or (_pending_points() <= 0 and played >= 2.2):
 				_begin_finale()
 		"finale":
 			_slide(delta)
@@ -129,6 +150,8 @@ func _process(delta: float) -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
+	if _paused or _phase == "done" or _phase == "finale" or _stun > 0.0:
+		return
 	var point := Vector2.ZERO
 	var aimed := false
 	if event is InputEventMouseMotion:
@@ -222,7 +245,10 @@ func _slide(delta: float) -> void:
 		if not bool(item["alive"]):
 			continue
 		var pos: Vector2 = item["pos"]
-		pos.x -= float(item["speed"]) * delta
+		var heat := 1.0
+		if _duration > 0.0:
+			heat = 1.0 + (1.0 - clampf(_left / _duration, 0.0, 1.0)) * 0.55
+		pos.x -= float(item["speed"]) * heat * delta
 		item["pos"] = pos
 		if pos.x < -40.0:
 			item["alive"] = false
@@ -231,7 +257,11 @@ func _slide(delta: float) -> void:
 			elif int(item["points"]) > 0 and _phase == "play":
 				_popup(pos, "Missed", Color("FFB4BE"))
 			continue
-		if pos.distance_to(plane) <= 28.0:
+		var gap := pos.distance_to(plane)
+		if str(item["kind"]) == "cloud" and gap < 48.0 and gap > 30.0 and not bool(item.get("near", false)):
+			item["near"] = true
+			_popup(pos, "Close", Color("D7F6FF"))
+		if gap <= 28.0:
 			_take(item, pos)
 
 
@@ -240,8 +270,13 @@ func _take(item: Dictionary, at: Vector2) -> void:
 		return
 	item["alive"] = false
 	if str(item["kind"]) == "cloud":
-		_popup(at, "Bump", Color("FFE38A"))
+		_bumps += 1
+		_stun = 0.45
+		_popup(at, "Hit", Color("FFB4BE"))
 		_burst(at, Color("E7EEF8"), 5)
+		if _bumps >= 3 and _phase == "play":
+			_left = 0.0
+			_popup(at, "Flight over", Color("FFE38A"))
 		return
 	var points := int(item["points"])
 	if points <= 0:
@@ -367,12 +402,16 @@ func _draw() -> void:
 	_draw_hud()
 	for pop in _pops:
 		_draw_popup(pop)
-	if _phase == "countdown":
+	if _paused:
+		_draw_center("Paused", "Resume to continue")
+	elif _phase == "countdown":
 		_draw_center(str(maxi(_count_n, 1)), "Drag to climb")
 	elif _phase == "loading":
 		_draw_center("Boarding", "Get ready")
 	elif _phase == "idle":
 		_draw_center("", "Drag or use the arrow keys")
+	elif _phase == "finale" or _phase == "done":
+		_draw_center("Flight over", "Round complete")
 	elif _phase == "play" and _left <= 3.0:
 		_draw_center(str(int(ceil(_left))), "Final seconds")
 

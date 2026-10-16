@@ -5,7 +5,7 @@ extends PanelContainer
 
 signal play_pressed(game: Dictionary)
 
-const POPULAR := ["fruit-spin", "diamond-spin", "lucky-dollar", "fishing", "scratch-mania", "coin-flip", "target-blast", "lucky-wheel", "mystery-box", "aeroplane-rush", "bottle-blast"]
+const POPULAR := ["fruit-spin", "lucky-dollar", "fishing", "scratch-mania", "coin-flip", "target-blast", "lucky-wheel", "treasure-box", "aeroplane-rush", "bottle-blast"]
 
 var _game: Dictionary = {}
 var _art: TextureRect
@@ -22,8 +22,20 @@ var _pressing := false
 
 
 static func group_of(game: Dictionary) -> String:
+	var slug := str(game.get("slug", ""))
+	match slug:
+		"lucky-dollar", "golden-fortune":
+			return "SLOTS"
+		"lucky-spin", "lucky-wheel", "jackpot-wheel", "fruit-spin", "diamond-spin", "prize-spinner", "bonus-burst":
+			return "SPIN"
+		"coin-flip", "treasure-box", "cash-match", "diamond-drop":
+			return "ARCADE"
+		"fishing", "target-blast", "aeroplane-rush", "bottle-blast", "dollar-rush":
+			return "ARCADE"
+		"scratch-mania", "higher-card", "dice", "lucky-number":
+			return "SPECIAL"
 	match str(game.get("category", "")).to_upper():
-		"SPIN":
+		"SPIN", "BONUS":
 			return "SPIN"
 		"SLOTS":
 			return "SLOTS"
@@ -31,8 +43,6 @@ static func group_of(game: Dictionary) -> String:
 			return "CARDS"
 		"FISHING", "REACTION":
 			return "ARCADE"
-		"BONUS":
-			return "SPECIAL"
 		"SCRATCH", "CHOICE", "MATCH":
 			return "SPECIAL"
 		_:
@@ -46,28 +56,26 @@ static func is_popular(game: Dictionary) -> bool:
 static func _group_label(game: Dictionary) -> String:
 	var slug := str(game.get("slug", ""))
 	match slug:
-		"fruit-spin", "diamond-spin", "lucky-dollar", "golden-fortune":
+		"lucky-dollar", "golden-fortune":
 			return "Slots"
-		"lucky-wheel", "lucky-spin", "jackpot-wheel", "bonus-burst", "prize-spinner":
+		"lucky-wheel", "lucky-spin", "jackpot-wheel", "bonus-burst", "prize-spinner", "fruit-spin", "diamond-spin":
 			return "Spin & Wheel"
-		"coin-flip", "treasure-box", "cash-match", "mystery-box", "diamond-drop":
+		"coin-flip", "treasure-box", "cash-match", "diamond-drop":
 			return "Arcade"
 		"fishing", "target-blast", "aeroplane-rush", "bottle-blast", "dollar-rush":
 			return "Action & Skill"
 		"scratch-mania", "higher-card", "dice", "lucky-number":
 			return "Casual"
 	match str(game.get("category", "")).to_upper():
-		"SPIN":
+		"SPIN", "BONUS":
 			return "Spin & Wheel"
 		"SLOTS":
 			return "Slots"
-		"CARDS":
+		"CARDS", "SCRATCH":
 			return "Casual"
-		"BONUS":
-			return "Spin & Wheel"
 		"FISHING", "REACTION":
 			return "Action & Skill"
-		"SCRATCH", "CHOICE", "MATCH":
+		"CHOICE", "MATCH":
 			return "Arcade"
 		_:
 			return str(game.get("category", "Game")).capitalize()
@@ -99,7 +107,9 @@ func configure(game: Dictionary, featured := false, show_play := true, extra := 
 	else:
 		_card_size = Vector2(380.0 if featured else 340.0, 286.0 if featured else 260.0)
 	custom_minimum_size = _card_size
-	size = _card_size
+	var stretched := not is_equal_approx(anchor_right, anchor_left) or not is_equal_approx(anchor_bottom, anchor_top)
+	if not stretched:
+		size = _card_size
 	size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	clip_contents = true

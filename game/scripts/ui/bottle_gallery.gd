@@ -30,6 +30,10 @@ var _finale := 0.0
 var _flushed := false
 var _font: Font
 var _shoot: Button
+var _paused := false
+var _charge := 0.0
+var _heavy := false
+var _shake := 0.0
 
 
 func _ready() -> void:
@@ -61,7 +65,18 @@ func show_loading() -> void:
 	_phase = "loading"
 
 
-func play_round(presentation: Dictionary, bet: int, _win_amount: float, credits: float) -> void:
+func set_paused(paused: bool) -> void:
+	_paused = paused
+	if _shoot:
+		_shoot.disabled = paused or _phase != "play"
+	queue_redraw()
+
+
+func round_score() -> int:
+	return _score
+
+
+func play_round(presentation: Dictionary, bet: int, _win_amount: float, credits: float, armed: bool = false) -> void:
 	_closed = false
 	_flushed = false
 	_bet = bet
@@ -84,7 +99,7 @@ func play_round(presentation: Dictionary, bet: int, _win_amount: float, credits:
 				_queue.append(bottle.duplicate(true))
 	_count_n = 3
 	_count_t = 0.4
-	_phase = "countdown"
+	_phase = "play" if armed else "countdown"
 	set_process(true)
 	_place_controls()
 	await finished
@@ -96,9 +111,17 @@ func _exit_tree() -> void:
 
 func _process(delta: float) -> void:
 	delta = clampf(delta, 0.0, 0.034)
+	if _paused:
+		queue_redraw()
+		return
 	_time += delta
 	_cooldown = maxf(_cooldown - delta, 0.0)
 	_recoil = maxf(_recoil - delta * 6.0, 0.0)
+	_shake = maxf(_shake - delta * 2.6, 0.0)
+	if _phase == "play" and _holding:
+		_charge = minf(_charge + delta * 1.15, 1.0)
+	elif not _holding:
+		_charge = maxf(_charge - delta * 0.8, 0.0)
 	match _phase:
 		"countdown":
 			_count_t -= delta
@@ -114,7 +137,9 @@ func _process(delta: float) -> void:
 				_fire()
 			_release()
 			_move(delta)
-			if _left <= 0.0 or (_queue.is_empty() and _pending_points() <= 0 and not _bottles.is_empty()):
+			var played := _duration - _left
+			var cleared := _queue.is_empty() and _pending_points() <= 0 and not _bottles.is_empty()
+			if _left <= 0.0 or (cleared and played >= 2.0):
 				_begin_finale()
 		"finale":
 			_move(delta)
@@ -133,6 +158,20 @@ func _process(delta: float) -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
+	if _paused or _phase == "done":
+		return
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		if not key.pressed or key.echo or _phase != "play":
+			return
+		if key.keycode == KEY_LEFT or key.keycode == KEY_A:
+			_aim = clampf(_aim - 0.14, -PI + 0.3, -0.3)
+		elif key.keycode == KEY_RIGHT or key.keycode == KEY_D:
+			_aim = clampf(_aim + 0.14, -PI + 0.3, -0.3)
+		elif key.keycode == KEY_SPACE or key.keycode == KEY_ENTER:
+			_fire()
+		accept_event()
+		return
 	var point := Vector2.ZERO
 	var aimed := false
 	var pressed := false
@@ -226,17 +265,22 @@ func _aim_at(point: Vector2) -> void:
 
 
 func _fire() -> void:
-	if (_phase != "play" and _phase != "finale") or _cooldown > 0.0 or _shots.size() >= 8:
+	if _paused or _phase != "play" or _cooldown > 0.0 or _shots.size() >= 8:
 		return
-	_cooldown = 0.22
+	var heavy := _charge >= 0.62
+	_cooldown = 0.34 if heavy else 0.22
 	_recoil = 1.0
+	if heavy:
+		_charge = 0.0
 	var origin := _launcher_pos() + Vector2(cos(_aim), sin(_aim)) * 26.0
+	var speed := 760.0 if heavy else 520.0
 	_shots.append({
 		"pos": origin,
-		"vel": Vector2(cos(_aim), sin(_aim)) * 520.0,
+		"vel": Vector2(cos(_aim), sin(_aim)) * speed,
 		"life": 1.7,
+		"heavy": heavy,
 	})
-	_burst(origin, Color("D7F6FF"), 3)
+	_burst(origin, Color("FFE38A") if heavy else Color("D7F6FF"), 8 if heavy else 3)
 
 
 func _move(delta: float) -> void:
@@ -245,7 +289,10 @@ func _move(delta: float) -> void:
 		if not bool(bottle["alive"]):
 			continue
 		var pos: Vector2 = bottle["pos"]
-		pos.x += float(bottle["dir"]) * float(bottle["speed"]) * delta
+		var heat := 1.0
+		if _duration > 0.0:
+			heat = 1.0 + (1.0 - clampf(_left / _duration, 0.0, 1.0)) * 0.7
+		pos.x += float(bottle["dir"]) * float(bottle["speed"]) * heat * delta
 		pos.y += sin(_time * 2.0 + float(bottle["spin"])) * 12.0 * delta
 		pos.y = clampf(pos.y, 96.0, maxf(size.y - 150.0, 120.0))
 		var radius := float(bottle["radius"])
@@ -264,8 +311,10 @@ func _move(delta: float) -> void:
 		if float(shot["life"]) <= 0.0 or pos.y < 48.0 or pos.x < -20.0 or pos.x > size.x + 20.0:
 			expired.append(index)
 			continue
+		_heavy = bool(shot.get("heavy", false))
 		if _hit(pos):
 			expired.append(index)
+		_heavy = false
 	for index in range(expired.size() - 1, -1, -1):
 		_shots.remove_at(expired[index])
 
@@ -279,7 +328,8 @@ func _hit(pos: Vector2) -> bool:
 			continue
 		var bottle_pos: Vector2 = bottle["pos"]
 		var distance := bottle_pos.distance_to(pos)
-		if distance <= float(bottle["radius"]) + 8.0 and distance < best_d:
+		var reach := float(bottle["radius"]) + (18.0 if _heavy else 8.0)
+		if distance <= reach and distance < best_d:
 			best = index
 			best_d = distance
 	if best < 0:
@@ -293,7 +343,10 @@ func _break(bottle: Dictionary, at: Vector2) -> void:
 		return
 	bottle["alive"] = false
 	var ink: Color = bottle["color"]
-	_burst(at, ink, 8)
+	_shake = 1.0 if _heavy else 0.45
+	_burst(at, ink, 14 if _heavy else 8)
+	if _heavy:
+		_popup(at + Vector2(0, -16), "Smash", Color("FFE38A"))
 	var points := int(bottle["points"])
 	if points <= 0:
 		_combo = 0
@@ -415,6 +468,8 @@ func _place_controls() -> void:
 
 
 func _draw() -> void:
+	if _shake > 0.0:
+		draw_set_transform(Vector2(randf_range(-3.0, 3.0), randf_range(-2.0, 2.0)) * _shake, 0.0, Vector2.ONE)
 	var rect := Rect2(Vector2.ZERO, size)
 	if rect.size.x < 16.0 or rect.size.y < 16.0:
 		return
@@ -435,12 +490,16 @@ func _draw() -> void:
 	_draw_hud()
 	for pop in _pops:
 		_draw_popup(pop)
-	if _phase == "countdown":
+	if _paused:
+		_draw_center("Paused", "Resume to continue")
+	elif _phase == "countdown":
 		_draw_center(str(maxi(_count_n, 1)), "Aim and blast")
 	elif _phase == "loading":
 		_draw_center("Setting bottles", "Get ready")
 	elif _phase == "idle":
 		_draw_center("", "Drag to aim, tap to blast")
+	elif _phase == "finale" or _phase == "done":
+		_draw_center("Round over", "Bottles checked")
 	elif _phase == "play" and _left <= 3.0:
 		_draw_center(str(int(ceil(_left))), "Final seconds")
 
@@ -450,13 +509,14 @@ func _draw_bottle(bottle: Dictionary) -> void:
 	var radius := float(bottle["radius"])
 	var color: Color = bottle["color"]
 	var spin := float(bottle["spin"])
-	var neck := Vector2(sin(spin) * 4.0, -radius * 0.9)
+	var tilt := sin(spin) * 0.45
+	var neck := Vector2(sin(spin) * 4.0, -radius * 0.9).rotated(tilt)
 	draw_rect(Rect2(pos + neck + Vector2(-4, -10), Vector2(8, 12)), color.lightened(0.2), true)
 	draw_colored_polygon(PackedVector2Array([
-		pos + Vector2(-radius * 0.45, -radius * 0.2),
-		pos + Vector2(radius * 0.45, -radius * 0.2),
-		pos + Vector2(radius * 0.62, radius * 0.8),
-		pos + Vector2(-radius * 0.62, radius * 0.8),
+		pos + Vector2(-radius * 0.45, -radius * 0.2).rotated(tilt),
+		pos + Vector2(radius * 0.45, -radius * 0.2).rotated(tilt),
+		pos + Vector2(radius * 0.62, radius * 0.8).rotated(tilt),
+		pos + Vector2(-radius * 0.62, radius * 0.8).rotated(tilt),
 	]), color)
 	draw_circle(pos + Vector2(-radius * 0.15, -radius * 0.05), 3.0, Color(1, 1, 1, 0.45))
 
@@ -471,6 +531,9 @@ func _draw_launcher() -> void:
 	draw_line(tip, aim_end, Color(1, 0.9, 0.6, 0.35), 2.0)
 	if _recoil > 0.35:
 		draw_circle(tip, 8.0, Color(1, 0.95, 0.7, 0.55))
+	if _charge > 0.05:
+		var bar := Rect2(origin + Vector2(-18, 18), Vector2(36.0 * _charge, 6.0))
+		draw_rect(bar, Color("F5C542"), true)
 
 
 func _draw_hud() -> void:

@@ -6,6 +6,8 @@ var _gap := 8
 var _faces: Array[SymbolView] = []
 var _ids: Array[String] = ["coin", "dollar", "star", "seven"]
 var _offset := 0.0
+var _arm_stop := false
+var _stop := false
 
 
 func _ready() -> void:
@@ -25,6 +27,32 @@ func set_face_size(next_size: Vector2) -> void:
 		face.custom_minimum_size = face_size
 		face.size = face_size
 	_place()
+
+
+func set_stoppable(enabled: bool) -> void:
+	_arm_stop = enabled
+	_stop = false
+	mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+
+
+func consume_stop() -> bool:
+	var requested := _stop
+	_stop = false
+	return requested
+
+
+func _gui_input(event: InputEvent) -> void:
+	if not _arm_stop:
+		return
+	var pressed := false
+	if event is InputEventMouseButton:
+		var mouse := event as InputEventMouseButton
+		pressed = mouse.pressed and mouse.button_index == MOUSE_BUTTON_LEFT
+	elif event is InputEventScreenTouch:
+		pressed = (event as InputEventScreenTouch).pressed
+	if pressed:
+		_stop = true
+		accept_event()
 
 
 func show_column(symbol_ids: Array) -> void:

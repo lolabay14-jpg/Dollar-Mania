@@ -46,7 +46,6 @@ const _SECTIONS := [
 	["modes", "Game Controls"],
 	["transactions", "Transactions"],
 	["activity", "Activity Logs"],
-	["settings", "System Settings"],
 	["profile", "Profile"],
 ]
 
@@ -200,8 +199,6 @@ func _paint() -> void:
 			_paint_transactions()
 		"activity":
 			_paint_activity()
-		"settings":
-			_paint_settings()
 		"profile":
 			_paint_profile()
 		_:

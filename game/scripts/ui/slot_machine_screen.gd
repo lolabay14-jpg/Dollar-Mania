@@ -24,7 +24,7 @@ func _ready() -> void:
 		_rules["max_bet"] = int(game.get("max_bet", _rules.get("max_bet", 40)))
 	_bet = int(_rules["min_bet"])
 	%SpinButton.theme_type_variation = "PrimaryButton"
-	%BackButton.pressed.connect(AppState.go_slots)
+	%BackButton.pressed.connect(AppState.go_player)
 	%SpinButton.pressed.connect(_on_spin)
 	%BetDown.pressed.connect(_change_bet.bind(-1))
 	%BetUp.pressed.connect(_change_bet.bind(1))
