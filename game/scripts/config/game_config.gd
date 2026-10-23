@@ -5,7 +5,7 @@ extends RefCounted
 ## Change GAME_CREDIT_COST here only — screens and gameplay both read this value.
 ## When a backend exists, the server can replace these defaults at startup.
 
-const API_BASE_URL := "http://127.0.0.1:3000"
+const API_BASE_URL := "https://apigames.thundertechsol.com"
 const GAME_CREDIT_COST := 10
 const STARTING_CREDITS := 500
 ## Player level advances after this many recorded spins.

@@ -1,8 +1,46 @@
-# Godot 4+ specific ignores
-.godot/
-/android/
+# OS junk
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# Backend secrets and build output
-backend/.env
-backend/node_modules/
-backend/dist/
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Godot editor cache, local editor binary, and generated Android project
+.godot/
+.tools/
+/android/
+export_credentials.cfg
+
+# Godot export output (web build and the old root-level export)
+/build/
+/exports.*
+*.apk
+*.aab
+
+# Generated translation binaries
+*.translation
+
+# C# / Mono leftovers, if the project is ever opened with that build
+.mono/
+mono_crash.*.json
+
+# Local playtest captures (keep the folder marker so Godot skips it)
+/playthrough/*
+!/playthrough/.gdignore
+/_shots/
+
+# Node backend (also listed in backend/.gitignore)
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+npm-debug.log*
+.env
+.env.*
+!.env.example
