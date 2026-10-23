@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GameSummary, PlayReceipt } from "@/lib/types";
 import { credits } from "@/lib/format";
 import { spinAction } from "@/server/actions";
-import type { RoundView } from "@/game/stage";
+import type { RoundView, StageHandle, StagePhase, StageState } from "@/game/stage";
 
 type ChoiceKind = "lane" | "coin" | "box" | "number";
 
@@ -24,11 +24,10 @@ export function PlayPanel({ game, balance }: { game: GameSummary; balance: numbe
     kind === "coin" ? "HEADS" : kind === "number" ? 1 : kind ? 0 : null,
   );
   const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
+  const [phase, setPhase] = useState<StagePhase>("idle");
   const [round, setRound] = useState<RoundView | null>(null);
-
-  const step = Math.max(1, game.minimumBet);
-  const clamped = Math.min(game.maximumBet, Math.max(game.minimumBet, bet));
+  const step = Math.max(1, Math.round(game.minimumBet));
+  const clamped = Math.min(game.maximumBet, Math.max(game.minimumBet, bet || game.minimumBet));
 
   async function play() {
     setError("");
@@ -36,49 +35,69 @@ export function PlayPanel({ game, balance }: { game: GameSummary; balance: numbe
       setError("Choose a number from 1 to 10.");
       return;
     }
-    if (kind === "lane" && (typeof choice !== "number" || choice < 0 || choice > 2)) {
-      setError("Choose a lane.");
-      return;
-    }
-    if (kind === "box" && (typeof choice !== "number" || choice < 0 || choice > 3)) {
-      setError("Choose a box.");
-      return;
-    }
-    setPending(true);
+    setPhase("drawing");
     const result = await spinAction({ slug: game.slug, bet: clamped, choice });
-    setPending(false);
     if (!result.ok) {
+      setPhase(round ? "result" : "idle");
       setError(result.error);
       return;
     }
     setCreditsLeft(result.receipt.balance);
     setRound(toView(result.receipt));
+    setPhase("result");
+  }
+
+  function nudge(next: number) {
+    setBet(Math.min(game.maximumBet, Math.max(game.minimumBet, next)));
   }
 
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="grid gap-1 text-sm">
-          Bet
-          <input
-            className="field w-32"
-            type="number"
-            min={game.minimumBet}
-            max={game.maximumBet}
-            step={step}
-            value={clamped}
-            onChange={(event) => setBet(Number(event.target.value))}
-          />
-        </label>
+    <section className="grid gap-4">
+      <Stage gameName={game.name} slug={game.slug} phase={phase} round={round} />
+      <div className="rounded-3xl border border-line bg-panel p-4">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs tracking-[0.16em] text-gold uppercase">{game.category}</p>
+            <p className="font-display text-2xl">{credits(creditsLeft)} credits</p>
+          </div>
+          <p className="text-sm text-muted">
+            Bet {game.minimumBet}–{game.maximumBet}
+            {round ? ` · last ${round.winAmount > 0 ? `win ${credits(round.winAmount)}` : "miss"}` : ""}
+          </p>
+        </div>
         <Choice kind={kind} value={choice} onChange={setChoice} />
-        <button className="btn" type="button" onClick={() => void play()} disabled={pending || creditsLeft < clamped}>
-          {pending ? "Asking the server…" : "Play"}
-        </button>
-        <p className="text-sm text-muted">Balance {credits(creditsLeft)}</p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button className="btn-ghost" type="button" onClick={() => nudge(game.minimumBet)} disabled={phase === "drawing"}>
+            Min
+          </button>
+          <button className="btn-ghost" type="button" onClick={() => nudge(clamped - step)} disabled={phase === "drawing"}>
+            −
+          </button>
+          <label className="grid gap-1 text-xs tracking-wide text-muted uppercase">
+            Bet
+            <input
+              className="field w-28"
+              type="number"
+              min={game.minimumBet}
+              max={game.maximumBet}
+              step={step}
+              value={clamped}
+              onChange={(event) => nudge(Number(event.target.value))}
+            />
+          </label>
+          <button className="btn-ghost" type="button" onClick={() => nudge(clamped + step)} disabled={phase === "drawing"}>
+            +
+          </button>
+          <button className="btn-ghost" type="button" onClick={() => nudge(game.maximumBet)} disabled={phase === "drawing"}>
+            Max
+          </button>
+          <button className="btn ml-auto px-6" type="button" onClick={() => void play()} disabled={phase === "drawing" || creditsLeft < clamped}>
+            {phase === "drawing" ? "Drawing…" : "Play"}
+          </button>
+        </div>
+        {error ? <p className="mt-3 text-sm text-bad">{error}</p> : null}
       </div>
-      {error ? <p className="text-sm text-bad">{error}</p> : null}
-      <Stage round={round} pending={pending} />
-    </div>
+    </section>
   );
 }
 
@@ -91,39 +110,35 @@ function Choice({
   value: string | number | null;
   onChange: (value: string | number) => void;
 }) {
+  if (!kind) return null;
   if (kind === "lane") {
-    return <Picks label="Lane" options={["Left", "Middle", "Right"]} value={Number(value)} onChange={onChange} />;
+    return <Picks label="Choose a lane" options={["Left", "Center", "Right"]} value={Number(value)} onChange={onChange} />;
   }
   if (kind === "box") {
-    return <Picks label="Box" options={["1", "2", "3", "4"]} value={Number(value)} onChange={onChange} />;
+    return <Picks label="Choose a box" options={["Box 1", "Box 2", "Box 3", "Box 4"]} value={Number(value)} onChange={onChange} />;
   }
   if (kind === "coin") {
     return (
-      <label className="grid gap-1 text-sm">
-        Call
-        <select className="field" value={String(value)} onChange={(event) => onChange(event.target.value)}>
-          <option value="HEADS">Heads</option>
-          <option value="TAILS">Tails</option>
-        </select>
-      </label>
+      <Picks
+        label="Call the coin"
+        options={["Heads", "Tails"]}
+        value={value === "TAILS" ? 1 : 0}
+        onChange={(index) => onChange(index === 0 ? "HEADS" : "TAILS")}
+      />
     );
   }
-  if (kind === "number") {
-    return (
-      <label className="grid gap-1 text-sm">
-        Number
-        <input
-          className="field w-24"
-          type="number"
-          min={1}
-          max={10}
-          value={Number(value) || 1}
-          onChange={(event) => onChange(Number(event.target.value))}
-        />
-      </label>
-    );
-  }
-  return null;
+  return (
+    <fieldset>
+      <legend className="mb-2 text-xs tracking-wide text-muted uppercase">Pick 1 to 10</legend>
+      <div className="flex flex-wrap gap-2">
+        {Array.from({ length: 10 }, (_, index) => index + 1).map((number) => (
+          <button key={number} type="button" className={number === value ? "btn h-10 w-10" : "btn-ghost h-10 w-10"} onClick={() => onChange(number)}>
+            {number}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
 }
 
 function Picks({
@@ -138,16 +153,11 @@ function Picks({
   onChange: (value: number) => void;
 }) {
   return (
-    <fieldset className="grid gap-1 text-sm">
-      <legend>{label}</legend>
-      <div className="flex gap-2">
+    <fieldset>
+      <legend className="mb-2 text-xs tracking-wide text-muted uppercase">{label}</legend>
+      <div className="flex flex-wrap gap-2">
         {options.map((option, index) => (
-          <button
-            key={option}
-            type="button"
-            className={index === value ? "btn" : "btn-ghost"}
-            onClick={() => onChange(index)}
-          >
+          <button key={option} type="button" className={index === value ? "btn" : "btn-ghost"} onClick={() => onChange(index)}>
             {option}
           </button>
         ))}
@@ -156,31 +166,46 @@ function Picks({
   );
 }
 
-function Stage({ round, pending }: { round: RoundView | null; pending: boolean }) {
-  const [host, setHost] = useState<HTMLDivElement | null>(null);
+function Stage({
+  gameName,
+  slug,
+  phase,
+  round,
+}: {
+  gameName: string;
+  slug: string;
+  phase: StagePhase;
+  round: RoundView | null;
+}) {
+  const host = useRef<HTMLDivElement>(null);
+  const handle = useRef<StageHandle | null>(null);
+
+  const view = useRef<StageState>({ phase, gameName, slug, round });
 
   useEffect(() => {
-    if (!host) {
-      return;
-    }
-    let destroy = () => {};
+    const parent = host.current;
+    if (!parent) return;
     let cancelled = false;
     void import("@/game/stage").then((mod) => {
-      if (cancelled) {
-        return;
-      }
-      destroy = mod.mountStage(host, round);
+      if (cancelled || !host.current) return;
+      handle.current = mod.mountStage(host.current);
+      handle.current.show(view.current);
     });
     return () => {
       cancelled = true;
-      destroy();
+      handle.current?.destroy();
+      handle.current = null;
     };
-  }, [host, round]);
+  }, []);
+
+  useEffect(() => {
+    view.current = { phase, gameName, slug, round };
+    handle.current?.show(view.current);
+  }, [phase, gameName, slug, round]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-ink">
-      <div ref={setHost} className="h-[28rem] w-full" />
-      {pending ? <p className="px-4 py-2 text-sm text-muted">The server is deciding this round.</p> : null}
+    <div className="overflow-hidden rounded-3xl border border-gold/40 bg-ink shadow-[0_24px_50px_rgb(0_0_0/0.35)]">
+      <div ref={host} className="aspect-video w-full" />
     </div>
   );
 }
@@ -190,6 +215,7 @@ function toView(receipt: PlayReceipt): RoundView {
     title: receipt.title,
     winAmount: receipt.winAmount,
     betAmount: receipt.betAmount,
+    multiplier: receipt.multiplier,
     presentation: receipt.presentation,
   };
 }

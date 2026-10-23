@@ -29,6 +29,11 @@ async function Play({ params }: { params: Promise<{ slug: string }> }) {
   return (
     <>
       <PageTitle kicker={game.category} title={game.name} detail={game.description} />
+      <p className="mb-4 text-sm">
+        <Link className="text-muted" href="/player/games">
+          Back to the floor
+        </Link>
+      </p>
       {game.enabled === false ? (
         <p className="text-bad">
           This game is closed for your account. <Link href="/player/games">Back to the floor</Link>
