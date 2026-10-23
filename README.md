@@ -1,6 +1,16 @@
 # Dollar Mania
 
-Virtual-credit arcade. The client is a Godot 4.7 project. The API lives in `backend/`.
+Virtual-credit arcade. The Godot 4.7 client stays in this repo. The API lives in `backend/`. A Next.js dashboard and game floor lives in `web/` and calls that same API.
+
+## Next.js dashboard
+
+From `web/`, with the API already running on port 3000:
+
+```powershell
+npm run dev
+```
+
+Open http://localhost:3001. See `web/README.md` for the player, admin, and game pages.
 
 ## Export the web build
 
