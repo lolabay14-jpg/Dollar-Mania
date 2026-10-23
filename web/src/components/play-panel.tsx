@@ -51,52 +51,48 @@ export function PlayPanel({ game, balance }: { game: GameSummary; balance: numbe
     setBet(Math.min(game.maximumBet, Math.max(game.minimumBet, next)));
   }
 
+  const busy = phase === "drawing";
+
   return (
-    <section className="grid gap-4">
+    <section className="flex flex-col gap-3 md:flex-row md:items-start">
       <Stage gameName={game.name} slug={game.slug} phase={phase} round={round} />
-      <div className="rounded-3xl border border-line bg-panel p-4">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs tracking-[0.16em] text-gold uppercase">{game.category}</p>
-            <p className="font-display text-2xl">{credits(creditsLeft)} credits</p>
-          </div>
-          <p className="text-sm text-muted">
-            Bet {game.minimumBet}–{game.maximumBet}
-            {round ? ` · last ${round.winAmount > 0 ? `win ${credits(round.winAmount)}` : "miss"}` : ""}
-          </p>
-        </div>
+      <aside className="flex w-full shrink-0 flex-col gap-2 rounded-2xl border border-line bg-panel p-3 md:ml-auto md:w-52">
+        <p className="font-display text-sm leading-none text-gold-2">{credits(creditsLeft)}</p>
+        <p className="text-[0.65rem] tracking-wide text-muted uppercase">
+          {round ? (round.winAmount > 0 ? `Won ${credits(round.winAmount)}` : "No win") : `${game.minimumBet}–${game.maximumBet}`}
+        </p>
         <Choice kind={kind} value={choice} onChange={setChoice} />
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button className="btn-ghost" type="button" onClick={() => nudge(game.minimumBet)} disabled={phase === "drawing"}>
-            Min
-          </button>
-          <button className="btn-ghost" type="button" onClick={() => nudge(clamped - step)} disabled={phase === "drawing"}>
+        <div className="flex items-center gap-1">
+          <button className="dock-btn" type="button" onClick={() => nudge(clamped - step)} disabled={busy}>
             −
           </button>
-          <label className="grid gap-1 text-xs tracking-wide text-muted uppercase">
-            Bet
-            <input
-              className="field w-28"
-              type="number"
-              min={game.minimumBet}
-              max={game.maximumBet}
-              step={step}
-              value={clamped}
-              onChange={(event) => nudge(Number(event.target.value))}
-            />
-          </label>
-          <button className="btn-ghost" type="button" onClick={() => nudge(clamped + step)} disabled={phase === "drawing"}>
+          <input
+            className="dock-field"
+            type="number"
+            min={game.minimumBet}
+            max={game.maximumBet}
+            step={step}
+            value={clamped}
+            aria-label="Bet"
+            onChange={(event) => nudge(Number(event.target.value))}
+          />
+          <button className="dock-btn" type="button" onClick={() => nudge(clamped + step)} disabled={busy}>
             +
           </button>
-          <button className="btn-ghost" type="button" onClick={() => nudge(game.maximumBet)} disabled={phase === "drawing"}>
+        </div>
+        <div className="flex gap-1">
+          <button className="dock-btn flex-1" type="button" onClick={() => nudge(game.minimumBet)} disabled={busy}>
+            Min
+          </button>
+          <button className="dock-btn flex-1" type="button" onClick={() => nudge(game.maximumBet)} disabled={busy}>
             Max
           </button>
-          <button className="btn ml-auto px-6" type="button" onClick={() => void play()} disabled={phase === "drawing" || creditsLeft < clamped}>
-            {phase === "drawing" ? "Drawing…" : "Play"}
-          </button>
         </div>
-        {error ? <p className="mt-3 text-sm text-bad">{error}</p> : null}
-      </div>
+        <button className="dock-play" type="button" onClick={() => void play()} disabled={busy || creditsLeft < clamped}>
+          {busy ? "Drawing…" : "Play"}
+        </button>
+        {error ? <p className="text-[0.7rem] text-bad">{error}</p> : null}
+      </aside>
     </section>
   );
 }
@@ -129,10 +125,10 @@ function Choice({
   }
   return (
     <fieldset>
-      <legend className="mb-2 text-xs tracking-wide text-muted uppercase">Pick 1 to 10</legend>
-      <div className="flex flex-wrap gap-2">
+      <legend className="mb-1 text-[0.65rem] tracking-wide text-muted uppercase">Number</legend>
+      <div className="grid grid-cols-5 gap-1">
         {Array.from({ length: 10 }, (_, index) => index + 1).map((number) => (
-          <button key={number} type="button" className={number === value ? "btn h-10 w-10" : "btn-ghost h-10 w-10"} onClick={() => onChange(number)}>
+          <button key={number} type="button" className="dock-btn h-6 w-6 p-0" data-on={number === value} onClick={() => onChange(number)}>
             {number}
           </button>
         ))}
@@ -154,10 +150,10 @@ function Picks({
 }) {
   return (
     <fieldset>
-      <legend className="mb-2 text-xs tracking-wide text-muted uppercase">{label}</legend>
-      <div className="flex flex-wrap gap-2">
+      <legend className="mb-1 text-[0.65rem] tracking-wide text-muted uppercase">{label}</legend>
+      <div className="flex flex-wrap gap-1">
         {options.map((option, index) => (
-          <button key={option} type="button" className={index === value ? "btn" : "btn-ghost"} onClick={() => onChange(index)}>
+          <button key={option} type="button" className="dock-btn" data-on={index === value} onClick={() => onChange(index)}>
             {option}
           </button>
         ))}
@@ -204,7 +200,7 @@ function Stage({
   }, [phase, gameName, slug, round]);
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-gold/40 bg-ink shadow-[0_24px_50px_rgb(0_0_0/0.35)]">
+    <div className="w-full overflow-hidden rounded-3xl border border-gold/40 bg-ink shadow-[0_24px_50px_rgb(0_0_0/0.35)] md:w-[min(calc(100%-14.5rem),calc((100dvh-7.5rem)*16/9))]">
       <div ref={host} className="aspect-video w-full" />
     </div>
   );

@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PlayPanel } from "@/components/play-panel";
-import { PageTitle } from "@/components/shell";
 import { api } from "@/server/api";
 import { requireUser } from "@/server/session";
 import type { GameSummary } from "@/lib/types";
@@ -28,12 +27,12 @@ async function Play({ params }: { params: Promise<{ slug: string }> }) {
   }
   return (
     <>
-      <PageTitle kicker={game.category} title={game.name} detail={game.description} />
-      <p className="mb-4 text-sm">
-        <Link className="text-muted" href="/player/games">
-          Back to the floor
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <h1 className="font-display truncate text-xl">{game.name}</h1>
+        <Link className="shrink-0 text-xs text-muted" href="/player/games">
+          Floor
         </Link>
-      </p>
+      </div>
       {game.enabled === false ? (
         <p className="text-bad">
           This game is closed for your account. <Link href="/player/games">Back to the floor</Link>

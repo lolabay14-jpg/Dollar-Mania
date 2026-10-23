@@ -9,7 +9,7 @@ export function Shell({ user, children }: { user: PublicUser; children: ReactNod
   return (
     <div className="min-h-screen">
       <header className="border-b border-line bg-panel/90">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4">
+        <div className="flex items-center justify-between gap-4 px-4 py-3">
           <div>
             <p className="font-display text-xl text-gold">Dollar Mania</p>
             <p className="text-xs tracking-wide text-muted uppercase">Virtual credits</p>
@@ -29,8 +29,8 @@ export function Shell({ user, children }: { user: PublicUser; children: ReactNod
           </div>
         </div>
       </header>
-      <div className="mx-auto grid max-w-6xl gap-6 px-4 py-6 md:grid-cols-[11rem_minmax(0,1fr)]">
-        <nav className="flex gap-2 overflow-x-auto md:flex-col">
+      <div className="grid gap-4 px-3 py-3 md:grid-cols-[max-content_minmax(0,1fr)] md:px-4">
+        <nav className="flex gap-1 overflow-x-auto md:flex-col">
           {links.map((link) => (
             <Link key={link.href} href={link.href} className="nav-link">
               {link.label}
